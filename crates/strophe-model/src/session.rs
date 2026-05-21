@@ -42,6 +42,13 @@ pub mod defaults {
     pub const TRACK_COUNT: usize = 4;
     pub const BARS_PER_PHRASE: u8 = 4;
     pub const BPM: f32 = 120.0;
+    /// Master clock on by default — the click is audible, captures
+    /// bar-align, and count-in applies. Turning it off mutes the click
+    /// and skips count-in (the "no metronome" looper mode).
+    pub const MASTER_CLOCK_ENABLED: bool = true;
+    /// Bars of count-in before a capture begins (only when the master
+    /// clock is on).
+    pub const COUNT_IN_BARS: u8 = 1;
 }
 
 /// Deeler-profile defaults: 10 mono tracks, 4 variation slots per
@@ -83,6 +90,14 @@ pub struct Session {
     /// - Looper-pedal profile: `PlaybackMode::Sum`
     /// - Deeler profile: `PlaybackMode::SelectOne { active: None }`
     pub default_playback_mode: PlaybackMode,
+    /// When true, the session has an audible click, bar-aligned capture,
+    /// and count-in. When false, the click is muted and count-in is
+    /// skipped (the "free / no metronome" looper mode). Tempo + time
+    /// signature stay informational either way.
+    pub master_clock_enabled: bool,
+    /// Bars of count-in before capture starts. Only applied when
+    /// `master_clock_enabled`.
+    pub count_in_bars: u8,
     pub tracks: Vec<Track>,
     /// Pool of all phrases captured in this session, addressable by
     /// id. `BTreeMap` (not `HashMap`) for deterministic serialization
@@ -131,6 +146,8 @@ impl Session {
             time_signature: TimeSignature::default(),
             bars_per_phrase: defaults::BARS_PER_PHRASE,
             default_playback_mode,
+            master_clock_enabled: defaults::MASTER_CLOCK_ENABLED,
+            count_in_bars: defaults::COUNT_IN_BARS,
             tracks,
             phrases: BTreeMap::new(),
         }

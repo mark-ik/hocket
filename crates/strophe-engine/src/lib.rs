@@ -767,6 +767,25 @@ impl Engine {
         }
     }
 
+    /// Mute or unmute the click loop. Used when the session's master
+    /// clock is toggled off/on. Patches the click sampler's volume the
+    /// same way [`Self::set_layer_gain`] does (`sync_volume_event` is
+    /// accepted post-hoc, unlike a `play` toggle), so the click keeps
+    /// running on its grid but goes silent — bar-phase math that reads
+    /// the click's playhead is unaffected.
+    pub fn set_click_enabled(&mut self, enabled: bool) {
+        let node = SamplerNode {
+            volume: if enabled {
+                Volume::Linear(1.0)
+            } else {
+                Volume::SILENT
+            },
+            ..SamplerNode::default()
+        };
+        self.cx
+            .queue_event_for(self.click_id, node.sync_volume_event());
+    }
+
     /// Is `key` currently assigned to a voice (i.e. nominally
     /// playing)? Note: one-shot voices may still report assigned
     /// after their buffer has naturally ended; the host should

@@ -33,6 +33,17 @@ pub fn settings_surface(state: &AppState) -> impl WidgetView<AppState> + use<> {
         state.session.time_signature.denominator,
     );
 
+    let clock_on = state.session.master_clock_enabled;
+    let clock_line = format!(
+        "Master clock: {}",
+        if clock_on {
+            "on — click audible, count-in active"
+        } else {
+            "off — click muted, no count-in"
+        }
+    );
+    let count_in_line = format!("Count-in: {} bar(s)", state.session.count_in_bars);
+
     flex_col((
         label("Session settings").text_size(TS_SM),
         label(profile_line).text_size(TS_XS),
@@ -41,6 +52,20 @@ pub fn settings_surface(state: &AppState) -> impl WidgetView<AppState> + use<> {
             text_button("Deeler profile", |s: &mut AppState| s.switch_profile(true)),
         ))
         .gap(SP_3),
+        flex_row((
+            label(clock_line).text_size(TS_XS),
+            text_button(
+                if clock_on { "Turn off" } else { "Turn on" },
+                |s: &mut AppState| s.toggle_master_clock(),
+            ),
+        ))
+        .gap(SP_3),
+        flex_row((
+            label(count_in_line).text_size(TS_XS),
+            text_button("–", |s: &mut AppState| s.nudge_count_in(-1)),
+            text_button("+", |s: &mut AppState| s.nudge_count_in(1)),
+        ))
+        .gap(SP_2),
         label(session_line).text_size(TS_XS).font(mono_family()),
         label("switching profile starts a fresh session").text_size(TS_XS),
     ))

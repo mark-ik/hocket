@@ -52,8 +52,6 @@ const TICK_INTERVAL: Duration = Duration::from_millis(16);
 
 /// Bars to capture when Record is pressed.
 pub(crate) const CAPTURE_BARS: u8 = 1;
-/// Bars of click count-in before capture begins.
-pub(crate) const COUNT_IN_BARS: u8 = 1;
 
 pub(crate) struct AppState {
     engine: Result<Engine, String>,
@@ -173,18 +171,46 @@ impl AppState {
     }
 
     /// Begin a bar-aligned capture into the armed track. No-op if no
-    /// track is armed.
+    /// track is armed. Count-in comes from the session and is skipped
+    /// when the master clock is off.
     pub(crate) fn record(&mut self) {
         let Some(armed_idx) = self.armed_track() else {
             return;
         };
+        let count_in = if self.session.master_clock_enabled {
+            self.session.count_in_bars
+        } else {
+            0
+        };
         if let Ok(engine) = &mut self.engine {
             if engine
-                .arm_bar_aligned_capture(CAPTURE_BARS, COUNT_IN_BARS)
+                .arm_bar_aligned_capture(CAPTURE_BARS, count_in)
                 .is_ok()
             {
                 self.capturing_track = Some(armed_idx);
             }
+        }
+    }
+
+    /// Toggle the session master clock and mute/unmute the engine click
+    /// to match.
+    pub(crate) fn toggle_master_clock(&mut self) {
+        let from = self.session.master_clock_enabled;
+        let to = !from;
+        self.history
+            .commit(Edit::SetMasterClock { from, to }, &mut self.session, 0);
+        if let Ok(engine) = &mut self.engine {
+            engine.set_click_enabled(to);
+        }
+    }
+
+    /// Nudge the count-in length (clamped to `0..=8` bars).
+    pub(crate) fn nudge_count_in(&mut self, delta: i8) {
+        let from = self.session.count_in_bars;
+        let to = (from as i16 + delta as i16).clamp(0, 8) as u8;
+        if to != from {
+            self.history
+                .commit(Edit::SetCountInBars { from, to }, &mut self.session, 0);
         }
     }
 
@@ -372,6 +398,12 @@ impl AppState {
         self.combined_peaks = vec![Vec::new(); n];
         self.surface = Surface::Tracks;
         self.arm(0); // arm the first track of the new session
+        // New session resets the master clock to its default; match the
+        // engine click to it.
+        let clock = self.session.master_clock_enabled;
+        if let Ok(engine) = &mut self.engine {
+            engine.set_click_enabled(clock);
+        }
     }
 
     /// True if the session is in the Deeler (SelectOne) profile.

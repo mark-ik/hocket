@@ -38,6 +38,8 @@ pub enum Edit {
     SetBpm { from: f32, to: f32 },
     SetTimeSignature { from: TimeSignature, to: TimeSignature },
     SetBarsPerPhrase { from: u8, to: u8 },
+    SetMasterClock { from: bool, to: bool },
+    SetCountInBars { from: u8, to: u8 },
 
     RenameTrack {
         track_id: TrackId,
@@ -113,6 +115,8 @@ impl Edit {
             Edit::SetBpm { to, .. } => session.bpm = *to,
             Edit::SetTimeSignature { to, .. } => session.time_signature = *to,
             Edit::SetBarsPerPhrase { to, .. } => session.bars_per_phrase = *to,
+            Edit::SetMasterClock { to, .. } => session.master_clock_enabled = *to,
+            Edit::SetCountInBars { to, .. } => session.count_in_bars = *to,
             Edit::RenameTrack { track_id, to, .. } => {
                 if let Some(t) = session.track_mut(*track_id) {
                     t.name = to.clone();
@@ -190,6 +194,8 @@ impl Edit {
             Edit::SetBpm { from, .. } => session.bpm = *from,
             Edit::SetTimeSignature { from, .. } => session.time_signature = *from,
             Edit::SetBarsPerPhrase { from, .. } => session.bars_per_phrase = *from,
+            Edit::SetMasterClock { from, .. } => session.master_clock_enabled = *from,
+            Edit::SetCountInBars { from, .. } => session.count_in_bars = *from,
             Edit::RenameTrack { track_id, from, .. } => {
                 if let Some(t) = session.track_mut(*track_id) {
                     t.name = from.clone();

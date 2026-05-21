@@ -601,6 +601,33 @@ installers, Android via cargo-apk.
 
 (populated as work proceeds)
 
+### Session 2026-05-20 — master clock + count-in
+
+- **Model:** `Session.master_clock_enabled: bool` + `count_in_bars: u8`
+  (defaults: on, 1 bar), with `Edit::SetMasterClock` / `SetCountInBars`
+  (apply/invert mirror `SetBarsPerPhrase`). So both are history-tracked
+  + persist + travel on hand-off.
+- **Engine:** `set_click_enabled(bool)` mutes/unmutes the click by
+  patching the click **sampler's volume** via `sync_volume_event` — the
+  same post-hoc-safe path `set_layer_gain` uses (a `play` toggle would
+  hit the broken `Notify<bool>::patch`). The click keeps running on its
+  grid but goes silent, so the bar-phase math that reads the click
+  playhead is unaffected.
+- **App:** `record()` now takes count-in from the session, gated by the
+  master clock (`master_clock ? count_in_bars : 0`). `toggle_master_clock`
+  commits the edit + mutes the engine click to match; `nudge_count_in`
+  steps 0..=8 bars. `switch_profile` re-syncs the click to the new
+  session's clock state.
+- **Settings UI:** master-clock on/off toggle + count-in −/+ stepper,
+  both reflected in the summary.
+- **Interim semantics (noted):** master-clock-off mutes the click and
+  skips count-in, but capture still snaps to the (now-silent) bar grid.
+  Truly free / variable-length unclocked capture is a deeper engine path
+  (separate from this toggle) — deferred. Runtime BPM change is likewise
+  still unsupported (click loop is pre-rendered), so no BPM control was
+  added.
+- Build clean (0.6s); model 30+2, engine 15+3 tests green.
+
 ### Session 2026-05-20 — arm-state consolidation + per-layer waveforms
 
 - **Arm state consolidated onto the model.** Dropped
