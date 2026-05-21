@@ -601,6 +601,51 @@ installers, Android via cargo-apk.
 
 (populated as work proceeds)
 
+### Session 2026-05-20 — app shell scaffold (surfaces + profile-aware strips)
+
+- **Decomposed the flat `main.rs` prototype into a surface-based shell.**
+  `main.rs` now owns `AppState`, the action helpers the views call, and
+  the engine tick/capture glue; view composition lives in `src/view/`.
+  Decision (Mark): Strophe-specific views live in the **app crate**, not
+  `strophe-widgets` — they read `AppState`, so putting them in the
+  widgets crate would be circular. `strophe-widgets` stays for
+  data-parameterized widgets.
+- **Surfaces:** a persistent `transport` bar (record/stop, status,
+  output meter, surface nav) over one of `Tracks` / `Combination` /
+  `Settings` (a `Surface` enum on `AppState`, dispatched via `OneOf3`).
+- **Profile-aware track strips** — the heart, dispatched on
+  `track.playback_mode` (`OneOf2`):
+  - **Sum (looper):** compact strip (arm + summed waveform + expand
+    toggle); expanding reveals per-layer **mute + gain± rows** (chosen
+    layout: compact+expand, per Mark).
+  - **SelectOne (Deeler):** a variation-slot row; the active slot is
+    marked, clicking switches it.
+- **Wired the future surfaces for real** (per Mark, not stubs):
+  - **Combination grid** — tracks × variation slots; clicking a cell
+    calls `select_variation`, which commits `Edit::SelectActiveLayer`,
+    stops the previously-active voice, and **replays the chosen layer
+    from the content store** at the next bar (`store.get(media) →
+    play_layer_at_next_bar`). First use of store-replay outside the
+    capture path.
+  - **Settings** — profile switch (looper ↔ Deeler) rebuilds the
+    session/history/store fresh; session summary readout.
+- **New `AppState` action helpers** (the model+audio glue, kept out of
+  the views): `record`, `stop_all`, `select_variation`,
+  `toggle_layer_mute`, `nudge_layer_gain` (live via
+  `engine.set_layer_gain`), `switch_profile`, `play_layer_from_store`,
+  `arm`, `toggle_expand`. Layer edits all commit through `History`.
+- **Deferred (flagged, not silently skipped):**
+  - **Arm-state still UI-side** (`AppState.armed_track: usize`), not
+    consolidated onto `Track.armed` + `Edit::ArmTrack`. Limited blast
+    radius for the scaffold; consolidation is a clean follow-up so arm
+    state survives hand-off/history.
+  - **Master clock / count-in / click / track-count** settings have no
+    backing model fields yet — Settings shows what exists; those land
+    when the model grows the fields.
+- Compiles clean (5.4s); strophe-engine 15+3, strophe-model 30+2 tests
+  green. UI interactions (mute/gain/variation-switch audio, profile
+  switch) want a runtime eyeball.
+
 ### Session 2026-05-20 — `xilem-components` (shared UI layer) + meter widget
 
 - **New shared crate `xilem-components`** (woodshed repo), the

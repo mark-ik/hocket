@@ -1,64 +1,61 @@
-//! Xilem + Masonry application shell for Strophe (FT4).
+//! Xilem + Masonry application shell for Strophe.
 //!
-//! FT4.2: the model ↔ engine ↔ UI junction. `AppState` now owns the
-//! authoritative `Session` + `History` + a content-addressed
-//! `MediaStore`, alongside the audio `Engine`. Track strips render
-//! from `session.tracks`; one track is "armed" for recording. Record
-//! captures into the armed track: the buffer is stored
-//! (content-addressed → `MediaRef`), wrapped in a `Phrase` + `Layer`,
-//! committed to history via `Edit::AppendLayer`, and queued to play
-//! in the engine at the next bar boundary. Multiple tracks loop
-//! simultaneously (looper-pedal `Sum` profile).
+//! `AppState` owns the authoritative `Session` + `History` + a
+//! content-addressed `MediaStore`, alongside the audio `Engine`. The
+//! UI is split into *surfaces* (see [`view`]): a persistent transport
+//! bar plus one of Tracks / Combination / Settings. View composition
+//! lives in `view/`; this file owns `AppState`, the action helpers the
+//! views call, and the engine tick/capture glue.
 //!
-//! The `Engine` is `!Send`; Xilem keeps state on the main thread, so
-//! it lives directly in `AppState`. `tick()` (driven by a periodic
-//! `task_raw`) advances the whole engine — drains input, advances
-//! capture + queued layers, flushes Firewheel — and the tick handler
-//! promotes a completed capture into a model `AppendLayer` + engine
-//! `play_layer_at_next_bar`.
+//! The `Engine` is `!Send`; Xilem keeps state on the main thread, so it
+//! lives directly in `AppState`. A periodic `task_raw` drives
+//! `engine.tick()` (drain input + advance capture + queued layers +
+//! flush) and promotes a completed capture into a model `AppendLayer` +
+//! engine playback.
+
+mod view;
 
 use std::time::Duration;
 
 use masonry::dpi::LogicalSize;
 use masonry::layout::AsUnit;
-use masonry::peniko::Color;
 use masonry_winit::app::{EventLoop, EventLoopBuilder};
 use tokio::time;
 use winit::error::EventLoopError;
 use xilem::core::fork;
 use xilem::style::Style;
-use xilem::view::{
-    flex_col, flex_row, label, sized_box, task_raw, text_button, AnyFlexChild, FlexExt,
-};
+use xilem::view::{sized_box, task_raw};
 use xilem::{WidgetView, WindowOptions, Xilem};
 
 use strophe_engine::media::{InMemoryStore, MediaStore};
 use strophe_engine::{CapturePhase, Engine, LayerKey};
-use strophe_model::{Edit, History, Layer, Phrase, Session};
-use strophe_widgets::theme::{mono_family, Palette, SP_1, SP_2, SP_3, SP_4, TS_SM, TS_XL, TS_XS};
-use strophe_widgets::{compute_peaks, db_to_norm, meter_view, waveform_view, Peak};
+use strophe_model::{Edit, History, Layer, Phrase, PlaybackMode, Session};
+use strophe_widgets::theme::{Palette, SP_1, SP_4};
+use strophe_widgets::{compute_peaks, Peak};
+
+use view::Surface;
 
 /// Horizontal resolution of the per-track waveform (peak columns).
 const WAVEFORM_COLUMNS: usize = 256;
 /// Waveform display dimensions.
-const WAVEFORM_W: f64 = 240.0;
-const WAVEFORM_H: f64 = 40.0;
+pub(crate) const WAVEFORM_W: f64 = 240.0;
+pub(crate) const WAVEFORM_H: f64 = 40.0;
 
 /// Output-meter bar dimensions + dB floor (shared `meter_view`).
-const METER_W: f64 = 240.0;
-const METER_H: f64 = 8.0;
-const METER_FLOOR_DB: f32 = -60.0;
+pub(crate) const METER_W: f64 = 240.0;
+pub(crate) const METER_H: f64 = 8.0;
+pub(crate) const METER_FLOOR_DB: f32 = -60.0;
 
 /// Engine tick cadence (~60 fps). Firewheel wants `update()` roughly
 /// every frame; bar-aligned scheduling resolution is bounded by this.
 const TICK_INTERVAL: Duration = Duration::from_millis(16);
 
 /// Bars to capture when Record is pressed.
-const CAPTURE_BARS: u8 = 1;
+pub(crate) const CAPTURE_BARS: u8 = 1;
 /// Bars of click count-in before capture begins.
-const COUNT_IN_BARS: u8 = 1;
+pub(crate) const COUNT_IN_BARS: u8 = 1;
 
-struct AppState {
+pub(crate) struct AppState {
     engine: Result<Engine, String>,
     sample_rate: u32,
     meter_db: [f32; 2],
@@ -75,11 +72,16 @@ struct AppState {
     store: InMemoryStore,
 
     // === UI / transport state ===
+    /// Which surface is showing.
+    surface: Surface,
     /// Index into `session.tracks` that Record captures into.
     armed_track: usize,
+    /// In a Sum-profile strip, which track (if any) is expanded to show
+    /// its per-layer mute/gain controls.
+    expanded_track: Option<usize>,
     /// Which track index the in-progress capture targets (snapshot of
-    /// `armed_track` at arm time, so changing the armed track during
-    /// a capture doesn't redirect it).
+    /// `armed_track` at arm time, so changing the armed track during a
+    /// capture doesn't redirect it).
     capturing_track: Option<usize>,
     /// Engine layer keys currently looping, so Stop-all can stop them.
     playing: Vec<LayerKey>,
@@ -109,15 +111,206 @@ impl AppState {
             session,
             history: History::new(),
             store: InMemoryStore::new(),
+            surface: Surface::default(),
             armed_track: 0,
+            expanded_track: None,
             capturing_track: None,
             playing: Vec::new(),
             track_peaks,
         }
     }
+
+    // === Transport actions ===
+
+    /// Arm a track as the capture target.
+    pub(crate) fn arm(&mut self, track_idx: usize) {
+        self.armed_track = track_idx;
+    }
+
+    /// Begin a bar-aligned capture into the armed track.
+    pub(crate) fn record(&mut self) {
+        if let Ok(engine) = &mut self.engine {
+            if engine
+                .arm_bar_aligned_capture(CAPTURE_BARS, COUNT_IN_BARS)
+                .is_ok()
+            {
+                self.capturing_track = Some(self.armed_track);
+            }
+        }
+    }
+
+    /// Stop every looping voice.
+    pub(crate) fn stop_all(&mut self) {
+        let keys: Vec<LayerKey> = self.playing.drain(..).collect();
+        if let Ok(engine) = &mut self.engine {
+            for key in keys {
+                engine.stop_layer(key);
+            }
+        }
+    }
+
+    // === Layer / variation actions ===
+
+    /// Stop one layer's voice and forget it.
+    fn stop_layer_key(&mut self, key: LayerKey) {
+        if let Ok(engine) = &mut self.engine {
+            engine.stop_layer(key);
+        }
+        self.playing.retain(|k| *k != key);
+    }
+
+    /// (Re)play a layer from the content store at the next bar boundary,
+    /// at its stored gain. No-op if the layer or its media is missing.
+    fn play_layer_from_store(&mut self, track_idx: usize, layer_idx: usize) {
+        let Some(track) = self.session.tracks.get(track_idx) else {
+            return;
+        };
+        let Some(layer) = track.layers.get(layer_idx) else {
+            return;
+        };
+        let Some(phrase) = self.session.phrases.get(&layer.phrase_id) else {
+            return;
+        };
+        let Some(buf) = self.store.get(&phrase.media) else {
+            return;
+        };
+        let samples = buf.samples.clone();
+        let gain = layer.gain;
+        let key = LayerKey::new(track.id, layer_idx as u16);
+        if let Ok(engine) = &mut self.engine {
+            let _ = engine.play_layer_at_next_bar(key, samples, gain, true);
+        }
+        if !self.playing.contains(&key) {
+            self.playing.push(key);
+        }
+    }
+
+    /// Pick the active variation on a `SelectOne` track (Deeler): stop
+    /// the previously-active layer, commit the model edit, play the new
+    /// one at the next bar.
+    pub(crate) fn select_variation(&mut self, track_idx: usize, layer_idx: u16) {
+        let Some(track) = self.session.tracks.get(track_idx) else {
+            return;
+        };
+        let track_id = track.id;
+        let from = track.playback_mode.active_layer();
+        if let Some(active) = from {
+            self.stop_layer_key(LayerKey::new(track_id, active));
+        }
+        self.history.commit(
+            Edit::SelectActiveLayer {
+                track_id,
+                from,
+                to: Some(layer_idx),
+            },
+            &mut self.session,
+            0,
+        );
+        self.play_layer_from_store(track_idx, layer_idx as usize);
+    }
+
+    /// Toggle a layer's mute (Sum profile). Mute stops its voice; unmute
+    /// replays it from the store.
+    pub(crate) fn toggle_layer_mute(&mut self, track_idx: usize, layer_idx: u16) {
+        let Some(track) = self.session.tracks.get(track_idx) else {
+            return;
+        };
+        let track_id = track.id;
+        let Some(layer) = track.layers.get(layer_idx as usize) else {
+            return;
+        };
+        let from = layer.muted;
+        let to = !from;
+        self.history.commit(
+            Edit::SetLayerMute {
+                track_id,
+                layer_index: layer_idx,
+                from,
+                to,
+            },
+            &mut self.session,
+            0,
+        );
+        let key = LayerKey::new(track_id, layer_idx);
+        if to {
+            self.stop_layer_key(key);
+        } else {
+            self.play_layer_from_store(track_idx, layer_idx as usize);
+        }
+    }
+
+    /// Nudge a layer's gain by `delta` (clamped to `0.0..=2.0`) and apply
+    /// it live to the playing voice.
+    pub(crate) fn nudge_layer_gain(&mut self, track_idx: usize, layer_idx: u16, delta: f32) {
+        let Some(track) = self.session.tracks.get(track_idx) else {
+            return;
+        };
+        let track_id = track.id;
+        let Some(layer) = track.layers.get(layer_idx as usize) else {
+            return;
+        };
+        let from = layer.gain;
+        let to = (from + delta).clamp(0.0, 2.0);
+        self.history.commit(
+            Edit::SetLayerGain {
+                track_id,
+                layer_index: layer_idx,
+                from,
+                to,
+            },
+            &mut self.session,
+            0,
+        );
+        let key = LayerKey::new(track_id, layer_idx);
+        if let Ok(engine) = &mut self.engine {
+            engine.set_layer_gain(key, to);
+        }
+    }
+
+    /// Expand/collapse a Sum-profile track's per-layer controls.
+    pub(crate) fn toggle_expand(&mut self, track_idx: usize) {
+        self.expanded_track = if self.expanded_track == Some(track_idx) {
+            None
+        } else {
+            Some(track_idx)
+        };
+    }
+
+    // === Session-level actions ===
+
+    /// Switch the whole session between the looper-pedal and Deeler
+    /// profiles. Stops all voices and starts a fresh session — this is
+    /// a destructive "new project in profile X," not a per-track mode
+    /// change (that's `Edit::SetTrackPlaybackMode`).
+    pub(crate) fn switch_profile(&mut self, deeler: bool) {
+        self.stop_all();
+        self.session = if deeler {
+            Session::new_deeler_profile()
+        } else {
+            Session::new_default()
+        };
+        self.history = History::new();
+        self.store = InMemoryStore::new();
+        self.armed_track = 0;
+        self.expanded_track = None;
+        self.capturing_track = None;
+        self.track_peaks = vec![Vec::new(); self.session.tracks.len()];
+        self.surface = Surface::Tracks;
+    }
+
+    /// True if the session is in the Deeler (SelectOne) profile.
+    pub(crate) fn is_deeler(&self) -> bool {
+        matches!(self.session.default_playback_mode, PlaybackMode::SelectOne { .. })
+    }
+
+    pub(crate) fn show(&mut self, surface: Surface) {
+        self.surface = surface;
+    }
 }
 
-fn fmt_db(v: f32) -> String {
+/// Format a dB value for the meter readout (right-aligned, `-inf` for
+/// silence).
+pub(crate) fn fmt_db(v: f32) -> String {
     if v == f32::NEG_INFINITY {
         "  -inf".to_string()
     } else {
@@ -125,7 +318,8 @@ fn fmt_db(v: f32) -> String {
     }
 }
 
-fn capture_phase_text(phase: &CapturePhase, sample_rate: u32) -> String {
+/// Human-readable capture-phase line for the transport.
+pub(crate) fn capture_phase_text(phase: &CapturePhase, sample_rate: u32) -> String {
     match phase {
         CapturePhase::Idle => "ready".to_string(),
         CapturePhase::Waiting {
@@ -147,84 +341,7 @@ fn capture_phase_text(phase: &CapturePhase, sample_rate: u32) -> String {
 }
 
 fn app_logic(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
-    let status = match &state.engine {
-        Ok(_) => format!("engine running @ {} Hz · click looping", state.sample_rate),
-        Err(e) => format!("engine unavailable: {e}"),
-    };
-
-    let [l, r] = state.meter_db;
-    let meter_line = format!("output peak   L {} dB   R {} dB", fmt_db(l), fmt_db(r));
-    let capture_line = capture_phase_text(&state.capture_phase, state.sample_rate);
-    let loops_line = format!("{} loop(s) playing", state.playing.len());
-
-    // Per-track rows: [arm button] [waveform] [layer count].
-    let armed = state.armed_track;
     let palette = state.palette;
-    let track_rows: Vec<AnyFlexChild<AppState>> = state
-        .session
-        .tracks
-        .iter()
-        .enumerate()
-        .map(|(i, track)| {
-            let marker = if i == armed { "●" } else { "○" };
-            let arm_label = format!("{}  {}", marker, track.name);
-            // Waveform fill is the track's own color (product-specific,
-            // not a theme token); the zero-line reads from the shared
-            // palette so it tracks the active theme.
-            let wave_color = Color::from_rgb8(track.color.r, track.color.g, track.color.b);
-            let zero_color = palette.text_disabled;
-            let peaks = state.track_peaks.get(i).cloned().unwrap_or_default();
-            let count_label = format!("{} layer(s)", track.layers.len());
-            flex_row((
-                text_button(arm_label, move |s: &mut AppState| {
-                    s.armed_track = i;
-                }),
-                sized_box(waveform_view(peaks, wave_color, zero_color))
-                    .width(WAVEFORM_W.px())
-                    .height(WAVEFORM_H.px()),
-                label(count_label).text_size(TS_XS),
-            ))
-            .gap(SP_3)
-            .into_any_flex()
-        })
-        .collect();
-
-    // Stereo output level — two bars driven by the shared meter_view,
-    // dB mapped through the shared db_to_norm. The text readout above
-    // stays for precise values.
-    let meter_fill = palette.primary;
-    let meter_track = palette.surface_2;
-    let meter_bars = flex_col((
-        sized_box(meter_view(db_to_norm(l, METER_FLOOR_DB), meter_fill, meter_track))
-            .width(METER_W.px())
-            .height(METER_H.px()),
-        sized_box(meter_view(db_to_norm(r, METER_FLOOR_DB), meter_fill, meter_track))
-            .width(METER_W.px())
-            .height(METER_H.px()),
-    ))
-    .gap(SP_1);
-
-    let controls = flex_row((
-        text_button("● Record (armed track)", |state: &mut AppState| {
-            if let Ok(engine) = &mut state.engine {
-                if engine
-                    .arm_bar_aligned_capture(CAPTURE_BARS, COUNT_IN_BARS)
-                    .is_ok()
-                {
-                    state.capturing_track = Some(state.armed_track);
-                }
-            }
-        }),
-        text_button("■ Stop all loops", |state: &mut AppState| {
-            let keys: Vec<LayerKey> = state.playing.drain(..).collect();
-            if let Ok(engine) = &mut state.engine {
-                for key in keys {
-                    engine.stop_layer(key);
-                }
-            }
-        }),
-    ))
-    .gap(SP_3);
 
     let tick_task = task_raw(
         move |proxy, _| async move {
@@ -263,15 +380,13 @@ fn app_logic(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
                         let bars = state.session.bars_per_phrase;
                         let bpm = state.session.bpm;
                         let media_ref = state.store.put(&samples, sr);
-                        // Compute the waveform peaks before `samples`
-                        // is moved into the engine.
-                        state.track_peaks[track_idx] =
-                            compute_peaks(&samples, WAVEFORM_COLUMNS);
+                        // Compute waveform peaks before `samples` moves
+                        // into the engine.
+                        state.track_peaks[track_idx] = compute_peaks(&samples, WAVEFORM_COLUMNS);
                         let phrase = Phrase::new(media_ref, bars, bpm, 0);
                         let layer = Layer::new(phrase.id);
                         let track_id = state.session.tracks[track_idx].id;
-                        let layer_index =
-                            state.session.tracks[track_idx].layers.len() as u16;
+                        let layer_index = state.session.tracks[track_idx].layers.len() as u16;
                         state.history.commit(
                             Edit::AppendLayer {
                                 track_id,
@@ -283,8 +398,7 @@ fn app_logic(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
                         );
                         let key = LayerKey::new(track_id, layer_index);
                         if let Ok(engine) = &mut state.engine {
-                            let _ = engine
-                                .play_layer_at_next_bar(key, samples, 1.0, true);
+                            let _ = engine.play_layer_at_next_bar(key, samples, 1.0, true);
                         }
                         state.playing.push(key);
                     }
@@ -294,34 +408,18 @@ fn app_logic(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
     );
 
     fork(
-        sized_box(
-            flex_col((
-                label("Strophe").text_size(TS_XL),
-                label(status).text_size(TS_SM),
-                // Live numeric readouts in mono so digit-width jitter
-                // doesn't shuffle the layout every tick.
-                label(meter_line).text_size(TS_SM).font(mono_family()),
-                meter_bars,
-                label(capture_line).text_size(TS_SM).font(mono_family()),
-                label(loops_line).text_size(TS_SM).font(mono_family()),
-                label("Tracks (click to arm):").text_size(TS_XS),
-                flex_col(track_rows).gap(SP_2),
-                controls,
-            ))
-            .gap(SP_2),
-        )
-        .padding(SP_4)
-        .background_color(palette.bg),
+        sized_box(view::app_shell(state))
+            .padding(SP_4)
+            .background_color(palette.bg),
         tick_task,
     )
 }
 
-/// Overlay palette colors onto masonry's built-in default property
-/// set. Masonry's defaults hardcode near-white text + dark button
-/// surfaces (a dark-theme assumption), so a bare `label(...)` ignores
-/// our palette without this. Set once at startup; a mid-session theme
-/// switch would need a property-set swap (out of scope until the
-/// settings pass).
+/// Overlay palette colors onto masonry's built-in default property set.
+/// Masonry's defaults hardcode near-white text + dark button surfaces
+/// (a dark-theme assumption), so a bare `label(...)` ignores our palette
+/// without this. Set once at startup; a mid-session theme switch would
+/// need a property-set swap (out of scope until the settings pass).
 fn build_default_properties(palette: &Palette) -> masonry::core::DefaultProperties {
     use masonry::core::DefaultProperties;
     use masonry::properties::{Background, BorderColor, BorderWidth, ContentColor, CornerRadius};
