@@ -66,6 +66,18 @@ pub fn settings_surface(state: &AppState) -> impl WidgetView<AppState> + use<> {
             text_button("+", |s: &mut AppState| s.nudge_count_in(1)),
         ))
         .gap(SP_2),
+        flex_row((
+            label(format!("Tempo: {} BPM", state.session.bpm as u32)).text_size(TS_XS),
+            text_button("–", |s: &mut AppState| s.nudge_bpm(-5.0)),
+            text_button("+", |s: &mut AppState| s.nudge_bpm(5.0)),
+        ))
+        .gap(SP_2),
+        flex_row((
+            label(format!("Beats/bar: {}", state.session.time_signature.numerator)).text_size(TS_XS),
+            text_button("–", |s: &mut AppState| s.nudge_beats(-1)),
+            text_button("+", |s: &mut AppState| s.nudge_beats(1)),
+        ))
+        .gap(SP_2),
         label(session_line).text_size(TS_XS).font(mono_family()),
         label("switching profile starts a fresh session").text_size(TS_XS),
     ))

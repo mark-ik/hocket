@@ -29,7 +29,7 @@ use xilem::{WidgetView, WindowOptions, Xilem};
 
 use strophe_engine::media::{InMemoryStore, MediaStore};
 use strophe_engine::{CapturePhase, Engine, LayerKey};
-use strophe_model::{Edit, History, Layer, Phrase, PlaybackMode, Session};
+use strophe_model::{Edit, History, Layer, Phrase, PlaybackMode, Session, TimeSignature};
 use strophe_widgets::theme::{Palette, SP_1, SP_4};
 use strophe_widgets::{compute_peaks, Peak};
 
@@ -211,6 +211,46 @@ impl AppState {
         if to != from {
             self.history
                 .commit(Edit::SetCountInBars { from, to }, &mut self.session, 0);
+        }
+    }
+
+    /// Nudge the session tempo (clamped to `40..=240` BPM) and re-render
+    /// the engine click to match.
+    pub(crate) fn nudge_bpm(&mut self, delta: f32) {
+        let from = self.session.bpm;
+        let to = (from + delta).clamp(40.0, 240.0);
+        if (to - from).abs() < f32::EPSILON {
+            return;
+        }
+        self.history
+            .commit(Edit::SetBpm { from, to }, &mut self.session, 0);
+        self.resync_tempo();
+    }
+
+    /// Nudge beats-per-bar (the time-signature numerator, clamped to
+    /// `1..=16`) and re-render the engine click to match.
+    pub(crate) fn nudge_beats(&mut self, delta: i8) {
+        let from = self.session.time_signature;
+        let num = (from.numerator as i16 + delta as i16).clamp(1, 16) as u8;
+        if num == from.numerator {
+            return;
+        }
+        let to = TimeSignature::new(num, from.denominator);
+        self.history
+            .commit(Edit::SetTimeSignature { from, to }, &mut self.session, 0);
+        self.resync_tempo();
+    }
+
+    /// Push the session's tempo + bar length to the engine click and
+    /// re-apply the master-clock mute state (a re-render starts the new
+    /// click node at unity volume).
+    fn resync_tempo(&mut self) {
+        let bpm = self.session.bpm;
+        let beats = self.session.time_signature.numerator;
+        let clock = self.session.master_clock_enabled;
+        if let Ok(engine) = &mut self.engine {
+            let _ = engine.set_tempo(bpm, beats);
+            engine.set_click_enabled(clock);
         }
     }
 
@@ -398,12 +438,9 @@ impl AppState {
         self.combined_peaks = vec![Vec::new(); n];
         self.surface = Surface::Tracks;
         self.arm(0); // arm the first track of the new session
-        // New session resets the master clock to its default; match the
-        // engine click to it.
-        let clock = self.session.master_clock_enabled;
-        if let Ok(engine) = &mut self.engine {
-            engine.set_click_enabled(clock);
-        }
+        // New session resets tempo + master-clock to defaults; push them
+        // to the engine click (re-renders + re-applies mute state).
+        self.resync_tempo();
     }
 
     /// True if the session is in the Deeler (SelectOne) profile.

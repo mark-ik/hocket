@@ -767,6 +767,46 @@ impl Engine {
         }
     }
 
+    /// Re-render the click loop at a new tempo / bar length and swap it
+    /// into the graph. Post-hoc sample swaps on `SamplerNode` are
+    /// unreliable, so this *rebuilds* the click node (remove + add) —
+    /// the same add-on-demand pattern the voices use. The click playhead
+    /// restarts at bar 0, and the engine's bar-phase reference (`bpm` +
+    /// `beats_per_bar`, read by [`Self::samples_per_bar`]) updates to
+    /// match, so capture/replay stay aligned to the new grid.
+    ///
+    /// Already-playing layers are fixed-length buffers captured at the
+    /// old tempo — they are *not* time-stretched; tempo is meant to be
+    /// set before recording (or accepted as a deliberate re-pitch). The
+    /// new click node starts at unity volume; callers that keep the
+    /// master clock muted should re-apply [`Self::set_click_enabled`]
+    /// afterwards.
+    pub fn set_tempo(&mut self, bpm: f32, beats_per_bar: u8) -> Result<(), EngineError> {
+        let bpm = bpm.max(1.0);
+        let beats_per_bar = beats_per_bar.max(1);
+        let click_buf = click::render_click_loop(self.sample_rate, bpm, beats_per_bar);
+        let resource = make_mono_resource(click_buf);
+        let node = SamplerNode {
+            sample: Some(resource),
+            repeat_mode: RepeatMode::RepeatEndlessly,
+            play: Notify::new(true),
+            play_from: PlayFrom::BEGINNING,
+            ..SamplerNode::default()
+        };
+        let _ = self.cx.remove_node(self.click_id);
+        let new_id = self.cx.add_node(node, None);
+        self.cx
+            .connect(new_id, self.meter_id, &[(0, 0), (1, 1)], false)
+            .map_err(|e| EngineError::Graph(format!("click→meter: {e:?}")))?;
+        if let Some(state) = self.cx.node_state::<SamplerState>(new_id) {
+            state.mark_playing();
+        }
+        self.click_id = new_id;
+        self.bpm = bpm;
+        self.beats_per_bar = beats_per_bar;
+        Ok(())
+    }
+
     /// Mute or unmute the click loop. Used when the session's master
     /// clock is toggled off/on. Patches the click sampler's volume the
     /// same way [`Self::set_layer_gain`] does (`sync_volume_event` is

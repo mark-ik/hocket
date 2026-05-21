@@ -601,6 +601,28 @@ installers, Android via cargo-apk.
 
 (populated as work proceeds)
 
+### Session 2026-05-21 — runtime tempo (click re-render)
+
+- **Engine `set_tempo(bpm, beats_per_bar)`** re-renders the click loop
+  and swaps it in by **rebuilding the click node** (remove + add) — the
+  add-on-demand pattern the voices use, since post-hoc `SamplerNode`
+  sample swaps are unreliable. Updates `bpm`/`beats_per_bar` so
+  `samples_per_bar` (capture/replay alignment) tracks the new grid. The
+  click playhead restarts at bar 0; new node starts at unity, so callers
+  re-apply `set_click_enabled`.
+- **App:** `nudge_bpm` (40–240) commits `SetBpm`; `nudge_beats` (1–16,
+  the time-sig numerator) commits `SetTimeSignature`; both call
+  `resync_tempo` (set_tempo + re-apply click mute). `switch_profile`
+  now resyncs tempo too (covers the case where you'd changed BPM before
+  switching). Makes the Deeler "fixed bar length" honest and gives the
+  looper a real tempo control.
+- **Settings UI:** BPM −/+ (±5) and beats/bar −/+ steppers (no longer
+  dead controls — earlier they'd have been misleading).
+- **Caveat (documented):** already-playing layers are fixed-length
+  buffers at their captured tempo — `set_tempo` does *not* time-stretch
+  them; tempo is meant to be set before recording. Build clean (7.5s);
+  engine 15+3, model 30+2 green.
+
 ### Session 2026-05-20 — master clock + count-in
 
 - **Model:** `Session.master_clock_enabled: bool` + `count_in_bars: u8`
