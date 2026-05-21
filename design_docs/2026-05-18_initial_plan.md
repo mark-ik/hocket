@@ -601,6 +601,27 @@ installers, Android via cargo-apk.
 
 (populated as work proceeds)
 
+### Session 2026-05-20 — arm-state consolidation + per-layer waveforms
+
+- **Arm state consolidated onto the model.** Dropped
+  `AppState.armed_track: usize`; the armed track is now `Track.armed`
+  (single source of truth). `arm(idx)` goes through `Edit::ArmTrack`
+  (single-arm: unarm the stale one, arm the target), so arm state is
+  history-tracked and survives undo/redo + hand-off. `armed_track()` is
+  now a derived getter (`tracks.position(|t| t.armed)`); `record()` and
+  the strips read it / `track.armed`. First track armed by default via
+  `arm(0)` in `new()` + `switch_profile`.
+- **Looper strip: compact = combined, expanded = per-layer.** Replaced
+  the single per-track peak set with `layer_peaks: Vec<Vec<Vec<Peak>>>`
+  (`[track][layer]`) + `combined_peaks: Vec<Vec<Peak>>`. At capture: the
+  new layer's peaks append to `layer_peaks`, and `recompute_combined`
+  re-sums *all* the track's layers from the content store → the compact
+  waveform. Expanding the strip now renders each layer's own waveform
+  (shorter `LAYER_WAVEFORM_H`) beside its mute/gain. The compact shape
+  is literally the stacked overdub summed.
+- Build clean (0.6s); strophe-model 30+2, strophe-engine 15+3 green.
+  Audio/visual paths want a runtime eyeball.
+
 ### Session 2026-05-20 — app shell scaffold (surfaces + profile-aware strips)
 
 - **Decomposed the flat `main.rs` prototype into a surface-based shell.**

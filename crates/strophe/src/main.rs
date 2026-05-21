@@ -74,27 +74,31 @@ pub(crate) struct AppState {
     // === UI / transport state ===
     /// Which surface is showing.
     surface: Surface,
-    /// Index into `session.tracks` that Record captures into.
-    armed_track: usize,
     /// In a Sum-profile strip, which track (if any) is expanded to show
-    /// its per-layer mute/gain controls.
+    /// its per-layer waveforms + mute/gain controls.
     expanded_track: Option<usize>,
     /// Which track index the in-progress capture targets (snapshot of
-    /// `armed_track` at arm time, so changing the armed track during a
-    /// capture doesn't redirect it).
+    /// the armed track at arm time, so re-arming during a capture
+    /// doesn't redirect it). The *armed* track itself lives on the
+    /// model (`Track.armed`); this is just the in-flight capture's
+    /// destination.
     capturing_track: Option<usize>,
     /// Engine layer keys currently looping, so Stop-all can stop them.
     playing: Vec<LayerKey>,
-    /// Per-track waveform peaks (the most recently captured layer's
-    /// peaks), indexed parallel to `session.tracks`. Computed once at
-    /// capture time, not per frame.
-    track_peaks: Vec<Vec<Peak>>,
+    /// Per-track, per-layer waveform peaks (`[track][layer]`), appended
+    /// at capture. The expanded looper strip renders each layer's own
+    /// waveform from this.
+    layer_peaks: Vec<Vec<Vec<Peak>>>,
+    /// Per-track combined (all-layers-summed) waveform peaks, recomputed
+    /// at capture. The compact looper strip renders this — it's what the
+    /// stacked overdub looks like as one shape.
+    combined_peaks: Vec<Vec<Peak>>,
 }
 
 impl AppState {
     fn new() -> Self {
         let session = Session::new_default(); // looper profile, 4 tracks
-        let track_peaks = vec![Vec::new(); session.tracks.len()];
+        let n = session.tracks.len();
         let (engine, sample_rate) = match Engine::new() {
             Ok(engine) => {
                 let sr = engine.sample_rate();
@@ -102,7 +106,7 @@ impl AppState {
             }
             Err(e) => (Err(e.to_string()), 0),
         };
-        Self {
+        let mut state = Self {
             engine,
             sample_rate,
             meter_db: [f32::NEG_INFINITY; 2],
@@ -112,30 +116,100 @@ impl AppState {
             history: History::new(),
             store: InMemoryStore::new(),
             surface: Surface::default(),
-            armed_track: 0,
             expanded_track: None,
             capturing_track: None,
             playing: Vec::new(),
-            track_peaks,
-        }
+            layer_peaks: vec![Vec::new(); n],
+            combined_peaks: vec![Vec::new(); n],
+        };
+        state.arm(0); // arm the first track by default
+        state
     }
 
     // === Transport actions ===
 
-    /// Arm a track as the capture target.
-    pub(crate) fn arm(&mut self, track_idx: usize) {
-        self.armed_track = track_idx;
+    /// Index of the currently-armed track, if any. Derived from the
+    /// model (`Track.armed`) — the single source of truth.
+    pub(crate) fn armed_track(&self) -> Option<usize> {
+        self.session.tracks.iter().position(|t| t.armed)
     }
 
-    /// Begin a bar-aligned capture into the armed track.
+    /// Arm a track as the capture target. Single-arm semantics: unarm
+    /// any other armed track first. Goes through `Edit::ArmTrack`, so
+    /// arm state is on the model and survives undo/redo + hand-off.
+    pub(crate) fn arm(&mut self, track_idx: usize) {
+        let Some(target_id) = self.session.tracks.get(track_idx).map(|t| t.id) else {
+            return;
+        };
+        let stale: Vec<_> = self
+            .session
+            .tracks
+            .iter()
+            .filter(|t| t.armed && t.id != target_id)
+            .map(|t| t.id)
+            .collect();
+        for id in stale {
+            self.history.commit(
+                Edit::ArmTrack {
+                    track_id: id,
+                    from: true,
+                    to: false,
+                },
+                &mut self.session,
+                0,
+            );
+        }
+        if !self.session.tracks[track_idx].armed {
+            self.history.commit(
+                Edit::ArmTrack {
+                    track_id: target_id,
+                    from: false,
+                    to: true,
+                },
+                &mut self.session,
+                0,
+            );
+        }
+    }
+
+    /// Begin a bar-aligned capture into the armed track. No-op if no
+    /// track is armed.
     pub(crate) fn record(&mut self) {
+        let Some(armed_idx) = self.armed_track() else {
+            return;
+        };
         if let Ok(engine) = &mut self.engine {
             if engine
                 .arm_bar_aligned_capture(CAPTURE_BARS, COUNT_IN_BARS)
                 .is_ok()
             {
-                self.capturing_track = Some(self.armed_track);
+                self.capturing_track = Some(armed_idx);
             }
+        }
+    }
+
+    /// Recompute a track's combined (all-layers-summed) waveform peaks
+    /// from the content store. Called at capture time, when a layer is
+    /// added. Sums every layer regardless of mute — the compact strip
+    /// shows the full stack as one shape.
+    fn recompute_combined(&mut self, track_idx: usize) {
+        let mut sum: Vec<f32> = Vec::new();
+        if let Some(track) = self.session.tracks.get(track_idx) {
+            for layer in &track.layers {
+                if let Some(phrase) = self.session.phrases.get(&layer.phrase_id) {
+                    if let Some(buf) = self.store.get(&phrase.media) {
+                        if buf.samples.len() > sum.len() {
+                            sum.resize(buf.samples.len(), 0.0);
+                        }
+                        for (i, s) in buf.samples.iter().enumerate() {
+                            sum[i] += *s;
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(slot) = self.combined_peaks.get_mut(track_idx) {
+            *slot = compute_peaks(&sum, WAVEFORM_COLUMNS);
         }
     }
 
@@ -291,11 +365,13 @@ impl AppState {
         };
         self.history = History::new();
         self.store = InMemoryStore::new();
-        self.armed_track = 0;
         self.expanded_track = None;
         self.capturing_track = None;
-        self.track_peaks = vec![Vec::new(); self.session.tracks.len()];
+        let n = self.session.tracks.len();
+        self.layer_peaks = vec![Vec::new(); n];
+        self.combined_peaks = vec![Vec::new(); n];
         self.surface = Surface::Tracks;
+        self.arm(0); // arm the first track of the new session
     }
 
     /// True if the session is in the Deeler (SelectOne) profile.
@@ -380,9 +456,13 @@ fn app_logic(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
                         let bars = state.session.bars_per_phrase;
                         let bpm = state.session.bpm;
                         let media_ref = state.store.put(&samples, sr);
-                        // Compute waveform peaks before `samples` moves
-                        // into the engine.
-                        state.track_peaks[track_idx] = compute_peaks(&samples, WAVEFORM_COLUMNS);
+                        // Per-layer peaks (the expanded strip renders
+                        // each), computed before `samples` moves into the
+                        // engine.
+                        let layer_pk = compute_peaks(&samples, WAVEFORM_COLUMNS);
+                        if let Some(track_slot) = state.layer_peaks.get_mut(track_idx) {
+                            track_slot.push(layer_pk);
+                        }
                         let phrase = Phrase::new(media_ref, bars, bpm, 0);
                         let layer = Layer::new(phrase.id);
                         let track_id = state.session.tracks[track_idx].id;
@@ -396,6 +476,9 @@ fn app_logic(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
                             &mut state.session,
                             0,
                         );
+                        // Combined (summed) peaks for the compact strip,
+                        // now that the new layer is in the store + model.
+                        state.recompute_combined(track_idx);
                         let key = LayerKey::new(track_id, layer_index);
                         if let Ok(engine) = &mut state.engine {
                             let _ = engine.play_layer_at_next_bar(key, samples, 1.0, true);

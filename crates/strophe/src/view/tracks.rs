@@ -17,6 +17,11 @@ use strophe_widgets::waveform_view;
 
 use crate::{AppState, WAVEFORM_H, WAVEFORM_W};
 
+/// Height of each per-layer waveform in the expanded looper strip —
+/// shorter than the compact combined waveform so a deep stack stays
+/// scannable.
+const LAYER_WAVEFORM_H: f64 = 24.0;
+
 pub fn tracks_surface(state: &AppState) -> impl WidgetView<AppState> + use<> {
     let rows: Vec<AnyFlexChild<AppState>> = state
         .session
@@ -43,11 +48,11 @@ pub fn tracks_surface(state: &AppState) -> impl WidgetView<AppState> + use<> {
 /// toggle); when expanded, a per-layer mute/gain row for each layer.
 fn sum_strip(state: &AppState, i: usize) -> impl WidgetView<AppState> + use<> {
     let track = &state.session.tracks[i];
-    let armed = state.armed_track == i;
-    let arm_label = format!("{}  {}", if armed { "●" } else { "○" }, track.name);
+    let arm_label = format!("{}  {}", if track.armed { "●" } else { "○" }, track.name);
     let wave_color = Color::from_rgb8(track.color.r, track.color.g, track.color.b);
     let zero = state.palette.text_disabled;
-    let peaks = state.track_peaks.get(i).cloned().unwrap_or_default();
+    // Compact strip shows the combined (all-layers-summed) waveform.
+    let peaks = state.combined_peaks.get(i).cloned().unwrap_or_default();
     let n = track.layers.len();
     let expanded = state.expanded_track == Some(i);
     let expand_label = if expanded {
@@ -74,6 +79,13 @@ fn sum_strip(state: &AppState, i: usize) -> impl WidgetView<AppState> + use<> {
                 let li_u = li as u16;
                 let mute_label = if layer.muted { "muted" } else { "on" };
                 let gain_label = format!("{:.2}", layer.gain);
+                // This layer's own waveform (the point of expanding).
+                let layer_pk = state
+                    .layer_peaks
+                    .get(i)
+                    .and_then(|v| v.get(li))
+                    .cloned()
+                    .unwrap_or_default();
                 flex_row((
                     label(format!("L{li}")).text_size(TS_XS),
                     text_button(mute_label, move |s: &mut AppState| {
@@ -82,6 +94,9 @@ fn sum_strip(state: &AppState, i: usize) -> impl WidgetView<AppState> + use<> {
                     text_button("–", move |s: &mut AppState| s.nudge_layer_gain(i, li_u, -0.1)),
                     label(gain_label).text_size(TS_XS).font(mono_family()),
                     text_button("+", move |s: &mut AppState| s.nudge_layer_gain(i, li_u, 0.1)),
+                    sized_box(waveform_view(layer_pk, wave_color, zero))
+                        .width(WAVEFORM_W.px())
+                        .height(LAYER_WAVEFORM_H.px()),
                 ))
                 .gap(SP_2)
                 .into_any_flex()
@@ -98,8 +113,7 @@ fn sum_strip(state: &AppState, i: usize) -> impl WidgetView<AppState> + use<> {
 /// is marked; clicking a slot makes it the playing variation.
 fn selectone_strip(state: &AppState, i: usize) -> impl WidgetView<AppState> + use<> {
     let track = &state.session.tracks[i];
-    let armed = state.armed_track == i;
-    let arm_label = format!("{}  {}", if armed { "●" } else { "○" }, track.name);
+    let arm_label = format!("{}  {}", if track.armed { "●" } else { "○" }, track.name);
     let active = track.playback_mode.active_layer();
 
     let slots: Vec<AnyFlexChild<AppState>> = track
