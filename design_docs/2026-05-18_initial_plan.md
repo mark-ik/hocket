@@ -129,15 +129,28 @@ loop-first.**
 - *Don't:* piano roll, plugin GUI hosting, VST3, video sync,
   surround/spatial
 
-### Audio widgets — shared crate plan
+### Shared crates plan
 
-`audio-widgets` (in the woodshed repo, used by both Woodshed and
-Strophe). Owns the fader / knob / meter / transport-button design.
-**Extract when there's something to share.** As of 2026-05-19 it
-ships: `waveform_view` + `compute_peaks` (extracted at FT5) and a
-`theme` module (spacing `SP_*`, type scale `TS_*`, `mono_family()`,
-base `Palette` + `ThemeMode`). `strophe-widgets` re-exports both.
-Product-specific colors (waveform fill, fretboard) stay per-host.
+Two shared crates live in the woodshed repo, consumed by both Woodshed
+and Strophe (cross-repo path-deps). **Extract when there's something
+to share.**
+
+- **`audio-widgets`** — the UI layer (Masonry/Vello). As of 2026-05-19
+  ships `waveform_view` + `compute_peaks` (extracted at FT5) and a
+  `theme` module (spacing `SP_*`, type scale `TS_*`, `mono_family()`,
+  base `Palette` + `ThemeMode`). `strophe-widgets` re-exports both.
+  Product-specific colors (waveform fill, fretboard) stay per-host.
+  Future: fader / knob / meter / transport-button.
+- **`audio-primitives`** — the pure-DSP layer (zero deps, no engine/UI).
+  As of 2026-05-20 ships `click` (synthesis), `onset` (`OnsetDetector`
+  + `estimate_bpm`), `calibration` (`estimate_latency_from_pairs`).
+  Drivers (cpal `Analyzer`, Firewheel graph, live calibration session)
+  stay in the consuming crate. Future candidates: WAV I/O (`SampleBank`,
+  Strophe FT8), MIDI clock sync.
+
+The doctrine's third name, `audio-devices` (cpal/MIDI I/O), is not yet
+extracted — Woodshed is cpal-direct and Strophe is on Firewheel, so the
+device layer hasn't found a shared shape worth factoring out.
 
 ### Visual design conventions (apply during UI work)
 
@@ -587,6 +600,52 @@ installers, Android via cargo-apk.
 ## Findings
 
 (populated as work proceeds)
+
+### Session 2026-05-20 — `audio-primitives` extraction (shared pure DSP)
+
+- **New shared crate `audio-primitives`** (woodshed repo, sibling to
+  `audio-widgets`), the doctrine's second shared extraction. Pure std,
+  **zero dependencies** — the rule: plain sample slices / timestamps in,
+  plain data out; anything owning a stream/engine/`Mutex` handle is a
+  *driver* and stays in the consuming crate. Mark picked the crate
+  structure (new crate, not growing `audio-widgets`) and the first
+  scope (click + onset + calibration) via the scoping question.
+- **Direction note:** this extraction pulls *from Woodshed's mature
+  DSP into* the shared layer, the reverse of the doctrine's "Strophe
+  incubates → promotes." That's fine — the shared layer takes the best
+  of either product; Woodshed had already incubated onset/calibration/
+  click, so promoting them is the same move in the other direction.
+- **Three modules extracted:**
+  - `click` — `click_sample` (per-sample sine-burst+decay core) +
+    `render_click_bar` (full-bar buffer). Killed a *literal*
+    duplication: Strophe's `render_click_loop` was annotated "ported
+    from `woodshed_audio::Sound::Click`." Now both call the shared
+    synth. Woodshed's `Sound::Click` voice renders per-sample via
+    `click_sample`; Strophe pre-renders a bar via `render_click_bar`.
+  - `onset` — `OnsetDetector` (streaming energy-envelope transient
+    detection) + `estimate_bpm` (median-interval tempo). The pure
+    core only; Woodshed's `OnsetAnalyzer`/`OnsetHandle` (cpal
+    `Analyzer`, `Mutex`-published, `Instant`-stamped) stayed put and
+    now build on the shared detector.
+  - `calibration` — `estimate_latency_from_pairs` + `count_matches` +
+    `MATCH_WINDOW` (click↔onset pairing → median round-trip latency).
+    Woodshed's `CalibrationSession` (drives the live run, owns the
+    engine handles) stayed. **This is what Strophe FT3c needs** —
+    latency calibration is now a shared primitive away.
+- **Coupling fix:** Woodshed's `OnsetHandle` wrote `OnsetDetector`'s
+  private `threshold_multiplier` field directly (same-module access).
+  Once the detector moved out, added `set_threshold_multiplier` /
+  `threshold_multiplier()` accessors and rewired the handle.
+- **Back-compat:** Woodshed's `onset`/`calibration` modules `pub use`
+  the moved items, so `woodshed_audio::{OnsetDetector, estimate_bpm,
+  estimate_latency_from_pairs, MATCH_WINDOW}` resolve unchanged. Pure
+  tests moved with the code.
+- **Verified:** `audio-primitives` 24 tests, `woodshed-audio` 124
+  tests, `strophe-engine` 15+3 tests all green; full Strophe workspace
+  builds (22.8s). `woodshed-xilem` currently fails to compile, but on a
+  *pre-existing, unrelated* WIP — Mark's in-flight user-themes feature
+  (`Settings.user_themes`/`active_user_theme`, `set_user_theme`), not
+  anything this extraction touched.
 
 ### Session 2026-05-19 — theme module (shared, via audio-widgets)
 

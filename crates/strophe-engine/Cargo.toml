@@ -11,5 +11,8 @@ publish = false
 
 [dependencies]
 strophe-model = { workspace = true }
+# Shared pure-DSP primitives (click synth now; onset/tempo + latency
+# cores available for FT3c calibration + bar-alignment work).
+audio-primitives = { workspace = true }
 firewheel = { workspace = true }
 blake3 = { workspace = true }

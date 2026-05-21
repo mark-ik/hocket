@@ -464,6 +464,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "audio-primitives"
+version = "0.1.0"
+
+[[package]]
 name = "audio-widgets"
 version = "0.1.0"
 dependencies = [
@@ -3955,6 +3959,7 @@ dependencies = [
 name = "strophe-engine"
 version = "0.1.0"
 dependencies = [
+ "audio-primitives",
  "blake3",
  "firewheel",
  "strophe-model",

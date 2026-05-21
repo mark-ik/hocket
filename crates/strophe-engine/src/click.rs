@@ -5,11 +5,16 @@
 //! changes at runtime aren't supported here — they'll come in FT3b
 //! proper when the master clock becomes a first-class engine concept.
 //!
-//! The synthesis is a sine burst with exponential decay (ported from
-//! `woodshed_audio::Sound::Click` so the click sounds the same as
-//! Woodshed's metronome).
+//! The synthesis (sine burst + exponential decay) lives in the shared
+//! [`audio_primitives::click`] crate, so Strophe's click and Woodshed's
+//! metronome sound identical. This module just pins the metronome's
+//! voicing constants and the engine-facing signature.
 
-use std::f32::consts::TAU;
+/// Metronome voicing — matches `woodshed_audio::Sound::click()`.
+const BASE_FREQ_HZ: f32 = 800.0;
+const ACCENT_FREQ_HZ: f32 = 1200.0;
+const CLICK_DURATION_S: f32 = 0.05;
+const CLICK_AMPLITUDE: f32 = 0.4;
 
 /// Render one bar of clicks at the given BPM into a mono `Vec<f32>`.
 ///
@@ -17,31 +22,15 @@ use std::f32::consts::TAU;
 /// - Other beats use the base frequency.
 /// - Each click is a 50 ms sine burst with exponential decay.
 pub fn render_click_loop(sample_rate: u32, bpm: f32, beats_per_bar: u8) -> Vec<f32> {
-    let samples_per_beat = (sample_rate as f32 * 60.0 / bpm) as usize;
-    let click_duration_seconds = 0.05;
-    let click_samples = (sample_rate as f32 * click_duration_seconds) as usize;
-    let total_samples = samples_per_beat * beats_per_bar as usize;
-
-    let base_freq = 800.0_f32;
-    let accent_freq = 1200.0_f32;
-    let amplitude = 0.4_f32;
-    let decay_rate = 5.0 / click_duration_seconds;
-
-    let mut buf = vec![0.0_f32; total_samples];
-
-    for beat in 0..beats_per_bar as usize {
-        let freq = if beat == 0 { accent_freq } else { base_freq };
-        let beat_start = beat * samples_per_beat;
-
-        for s in 0..click_samples {
-            let t = s as f32 / sample_rate as f32;
-            let envelope = (-t * decay_rate).exp();
-            let phase = t * freq * TAU;
-            buf[beat_start + s] = phase.sin() * envelope * amplitude;
-        }
-    }
-
-    buf
+    audio_primitives::click::render_click_bar(
+        sample_rate,
+        bpm,
+        beats_per_bar,
+        BASE_FREQ_HZ,
+        ACCENT_FREQ_HZ,
+        CLICK_DURATION_S,
+        CLICK_AMPLITUDE,
+    )
 }
 
 #[cfg(test)]

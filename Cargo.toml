@@ -29,6 +29,14 @@ strophe-widgets = { path = "crates/strophe-widgets", version = "0.1.0" }
 # carrying its own copy. See memory/project_strophe_audio_pressure_vessel.md.
 audio-widgets = { path = "../woodshed/crates/audio-widgets", version = "0.1.0" }
 
+# Shared pure-DSP primitives — the `audio-primitives` extraction (click
+# synth, streaming onset/tempo, latency estimation). Lives in the
+# woodshed repo (seeded from its mature DSP); consumed cross-repo by
+# path-dep. strophe-engine's click loop calls the shared click synth;
+# the onset/tempo + latency cores are here for FT3c (calibration) and
+# bar-alignment work. Pure std, no engine/UI coupling.
+audio-primitives = { path = "../woodshed/crates/audio-primitives", version = "0.1.0" }
+
 # Firewheel: modular audio graph engine, the spine of strophe-engine
 # (FT3b-prime). cpal feature enables the default native backend; the
 # symphonium feature gives sample-loading helpers we'll want at FT8.
