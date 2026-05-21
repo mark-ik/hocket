@@ -3986,6 +3986,7 @@ name = "strophe-widgets"
 version = "0.1.0"
 dependencies = [
  "audio-widgets",
+ "xilem-components",
 ]
 
 [[package]]
@@ -5660,6 +5661,14 @@ dependencies = [
  "winit",
  "xilem_core",
  "xilem_masonry",
+]
+
+[[package]]
+name = "xilem-components"
+version = "0.1.0"
+dependencies = [
+ "masonry",
+ "xilem",
 ]
 
 [[package]]

@@ -601,6 +601,55 @@ installers, Android via cargo-apk.
 
 (populated as work proceeds)
 
+### Session 2026-05-20 — `xilem-components` (shared UI layer) + meter widget
+
+- **New shared crate `xilem-components`** (woodshed repo), the
+  domain-neutral UI layer. Decision (Mark): **two crates, split on
+  "is this audio-domain?"** — `xilem-components` for what *all three*
+  apps share **including Mere** (which isn't audio), `audio-widgets`
+  for the audio-domain widgets that sit one layer above it. The test
+  is the same domain-neutrality test as `audio-primitives` (pure DSP)
+  vs the drivers. Surveyed four community toolkits first:
+  `xilem_synth_widgets` (0.4.0 ✓ — knob/fader/scope, our exact pin),
+  `xilem_extras` (xilem-main git ✗ — learn-from-only: trees/tables/
+  modal), `xilem-material` (Material-You, theming reference),
+  `xilem_baseview` (plugin-GUI path — future).
+- **Seeded both layers this pass:**
+  - `xilem-components`: a **generic `combobox`**, generalized off
+    Woodshed's `AppState`-coupled original — the caller now passes
+    `is_open` + a `set_open(state, Option<id>)` setter + `on_select`,
+    so any host state shape works. Theme-independent (uses
+    `text_button` defaults, no palette), so the crate stays free of
+    the still-churning theme.
+  - `audio-widgets`: a **`meter_view`** (read-only level bar, same
+    canvas-closure idiom as `waveform_view`) + `db_to_norm` (linear-
+    in-dB mapping). 10 tests green.
+- **Strophe is a real consumer:** the app now draws **live stereo
+  meter bars** from the shared `meter_view` (the text dB readout
+  stays for precise values), and `strophe-widgets` re-exports
+  `combobox` + `meter_view`. Full workspace builds (10.3s).
+- **Borrow strategy:** chose to *reimplement* knob/fader/meter in our
+  canvas idiom rather than vendor `xilem_synth_widgets` — avoids
+  license-header/attribution overhead and 0.4.0-vs-our-checkout API
+  drift; we own the code in our style. Did the read-only `meter`
+  now; **knob/fader are interactive (pointer-drag) and need a study
+  of xilem 0.4.0's gesture API before implementing** — deferred
+  rather than guessed-and-shipped-broken.
+- **Theme placement clarified (not yet acted on):** generic widgets
+  that need colors (cards/buttons) want theme tokens, so `theme`
+  ultimately belongs in `xilem-components`, not `audio-widgets` where
+  it lives today. Migrating it now would collide with the live
+  theme-system work in `audio_widgets::theme` (and woodshed's broken
+  build), so it's **deferred until that settles**.
+- **Cross-repo coupling note:** a *tri-consumer* crate (incl. Mere,
+  a separate repo) living in woodshed's repo is the strongest signal
+  yet that the shared layer (`audio-primitives` + `audio-widgets` +
+  `xilem-components`) may want its own repo. Open decision.
+- **woodshed-xilem rewire deferred:** extracting Woodshed's own
+  combobox/widgets onto the shared crate is blocked on woodshed's
+  pre-existing user-themes build break, so it wasn't touched; the
+  shared crates were built + verified standalone instead.
+
 ### Session 2026-05-20 — `audio-primitives` extraction (shared pure DSP)
 
 - **New shared crate `audio-primitives`** (woodshed repo, sibling to

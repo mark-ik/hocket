@@ -11,4 +11,9 @@
 //! will live here directly when implemented, following the same
 //! canvas-closure pattern.
 
-pub use audio_widgets::{compute_peaks, theme, waveform_view, Peak};
+pub use audio_widgets::{compute_peaks, db_to_norm, meter_view, theme, waveform_view, Peak};
+
+// Domain-neutral components (combobox, …) from the layer beneath
+// audio-widgets. Re-exported so Strophe call sites use
+// `strophe_widgets::combobox` without a direct xilem-components dep.
+pub use xilem_components::combobox;

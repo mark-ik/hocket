@@ -36,13 +36,18 @@ use strophe_engine::media::{InMemoryStore, MediaStore};
 use strophe_engine::{CapturePhase, Engine, LayerKey};
 use strophe_model::{Edit, History, Layer, Phrase, Session};
 use strophe_widgets::theme::{mono_family, Palette, SP_1, SP_2, SP_3, SP_4, TS_SM, TS_XL, TS_XS};
-use strophe_widgets::{compute_peaks, waveform_view, Peak};
+use strophe_widgets::{compute_peaks, db_to_norm, meter_view, waveform_view, Peak};
 
 /// Horizontal resolution of the per-track waveform (peak columns).
 const WAVEFORM_COLUMNS: usize = 256;
 /// Waveform display dimensions.
 const WAVEFORM_W: f64 = 240.0;
 const WAVEFORM_H: f64 = 40.0;
+
+/// Output-meter bar dimensions + dB floor (shared `meter_view`).
+const METER_W: f64 = 240.0;
+const METER_H: f64 = 8.0;
+const METER_FLOOR_DB: f32 = -60.0;
 
 /// Engine tick cadence (~60 fps). Firewheel wants `update()` roughly
 /// every frame; bar-aligned scheduling resolution is bounded by this.
@@ -184,6 +189,21 @@ fn app_logic(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
         })
         .collect();
 
+    // Stereo output level — two bars driven by the shared meter_view,
+    // dB mapped through the shared db_to_norm. The text readout above
+    // stays for precise values.
+    let meter_fill = palette.primary;
+    let meter_track = palette.surface_2;
+    let meter_bars = flex_col((
+        sized_box(meter_view(db_to_norm(l, METER_FLOOR_DB), meter_fill, meter_track))
+            .width(METER_W.px())
+            .height(METER_H.px()),
+        sized_box(meter_view(db_to_norm(r, METER_FLOOR_DB), meter_fill, meter_track))
+            .width(METER_W.px())
+            .height(METER_H.px()),
+    ))
+    .gap(SP_1);
+
     let controls = flex_row((
         text_button("● Record (armed track)", |state: &mut AppState| {
             if let Ok(engine) = &mut state.engine {
@@ -281,6 +301,7 @@ fn app_logic(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
                 // Live numeric readouts in mono so digit-width jitter
                 // doesn't shuffle the layout every tick.
                 label(meter_line).text_size(TS_SM).font(mono_family()),
+                meter_bars,
                 label(capture_line).text_size(TS_SM).font(mono_family()),
                 label(loops_line).text_size(TS_SM).font(mono_family()),
                 label("Tracks (click to arm):").text_size(TS_XS),
