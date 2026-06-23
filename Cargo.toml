@@ -61,9 +61,9 @@ firewheel = { version = "0.10", features = [
 # coupling. See memory/project_strophe_audio_pressure_vessel.md.
 
 # UI (matches woodshed's pinned versions to share the local xilem checkout)
-xilem = { path = "../../crates/xilem/xilem", version = "0.4.0" }
-masonry = { path = "../../crates/xilem/masonry", version = "0.4.0" }
-masonry_winit = { path = "../../crates/xilem/masonry_winit", version = "0.4.0" }
+xilem = { git = "https://github.com/mark-ik/xilem.git", branch = "woodshed-theme", version = "0.4.0" }
+masonry = { git = "https://github.com/mark-ik/xilem.git", branch = "woodshed-theme", version = "0.4.0" }
+masonry_winit = { git = "https://github.com/mark-ik/xilem.git", branch = "woodshed-theme", version = "0.4.0" }
 winit = "0.30"
 
 # Audio I/O + DSP
