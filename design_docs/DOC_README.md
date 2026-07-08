@@ -14,6 +14,11 @@ before any other doc in this directory.
 - [2026-05-18_initial_plan.md](2026-05-18_initial_plan.md) — Initial
   scaffold, workspace skeleton, and feature-target ladder from
   click-track engine through P2P session hand-off.
+- [2026-07-08_serval_host_refactor_plan.md](2026-07-08_serval_host_refactor_plan.md)
+  — Refactor the UI off the Masonry fork onto `xilem_serval` + `chisel`
+  leaves (the audio spine is untouched). Slices S0-S6, both apps runnable
+  throughout; completing it retires the `mark-ik/xilem` fork family-wide
+  (Strophe is its last live consumer via `audio-widgets` / `xilem-components`).
 
 ## Archive
 
@@ -28,6 +33,14 @@ section whenever a durable working insight emerges from a session.
 - **The model is framework-agnostic.** `strophe-model` does not depend
   on cpal, xilem, masonry, or any UI/audio framework. The audio
   engine, the UI, and the sync layer all consume it as a peer.
+- **The UI rides serval, not Masonry (from 2026-07-08).** The plan is to
+  refactor the UI onto `xilem_serval` (serval's `xilem_core` backend, the
+  host woodshed already uses) with the custom-paint widgets
+  (waveform / meter / fader / knob) reborn as `chisel` leaves, retiring the
+  `mark-ik/xilem` Masonry fork. Structure (buttons, labels, flex, surface
+  switches) is native serval views + tinct CSS; only the drawn widgets are
+  chisel leaves. The audio spine is untouched. See
+  [2026-07-08_serval_host_refactor_plan.md](2026-07-08_serval_host_refactor_plan.md).
 - **Async-first collaboration**, never real-time multiplayer jamming.
   The product's identity is sequential turn-taking over Moothold; that
   shape must not erode into "everyone plays together over the net" as

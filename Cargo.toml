@@ -6,6 +6,9 @@ members = [
     "crates/strophe-model",
     "crates/strophe-widgets",
     "crates/strophe-headless",
+    # Serval-host refactor (2026-07-08 plan): the new UI stack, alongside
+    # the Masonry `strophe` bin until the parity cut.
+    "crates/strophe-serval",
 ]
 
 [workspace.package]
@@ -60,11 +63,32 @@ firewheel = { version = "0.10", features = [
 # (audio-primitives, audio-widgets, audio-devices), not direct
 # coupling. See memory/project_strophe_audio_pressure_vessel.md.
 
-# UI (matches woodshed's pinned versions to share the local xilem checkout)
+# UI — Masonry fork (the app being retired). Matches woodshed's pins.
+# Rides the GIT dep (no local worktree override): a `paths` override would
+# hijack serval's vendored xilem_core by name — see .cargo/config.toml.
 xilem = { git = "https://github.com/mark-ik/xilem.git", branch = "woodshed-theme", version = "0.4.0" }
 masonry = { git = "https://github.com/mark-ik/xilem.git", branch = "woodshed-theme", version = "0.4.0" }
 masonry_winit = { git = "https://github.com/mark-ik/xilem.git", branch = "woodshed-theme", version = "0.4.0" }
 winit = "0.30"
+
+# UI — serval host (2026-07-08 serval-host refactor). The new UI stack;
+# mirrors woodshed's serval section. GIT deps on the owned repos; local
+# checkouts ride the gitignored .cargo/config.toml source-specific [patch].
+# Build strophe-serval from the strophe cwd so that patch applies.
+xilem-serval = { git = "https://github.com/mark-ik/serval.git", branch = "main" }
+layout-dom-api = { git = "https://github.com/mark-ik/serval.git", branch = "main" }
+serval-scripted-dom = { git = "https://github.com/mark-ik/serval.git", branch = "main" }
+serval-layout = { git = "https://github.com/mark-ik/serval.git", branch = "main" }
+serval-winit-host = { git = "https://github.com/mark-ik/serval.git", branch = "main" }
+netrender = { git = "https://github.com/mark-ik/netrender.git", branch = "main" }
+paint_list_api = { git = "https://github.com/mark-ik/netrender.git", branch = "main" }
+paint_list_render = { git = "https://github.com/mark-ik/netrender.git", branch = "main" }
+# Host-side surface/compose types only; backend features come from
+# netrender's per-target split. serval stack is wgpu 29 (Masonry is 28;
+# both trees coexist until the parity cut).
+wgpu = { version = "29", default-features = false, features = ["std"] }
+# Pure OKLCH seed-to-palette theming (shared; woodshed's too).
+tinct = { git = "https://github.com/mark-ik/tinct", branch = "main" }
 
 # Audio I/O + DSP
 cpal = "0.15"
@@ -87,3 +111,17 @@ blake3 = "1.5"
 
 # Async runtime (UI side; never on the audio thread)
 tokio = { version = "1.50", features = ["rt", "rt-multi-thread", "time", "sync"] }
+
+# Mirror of serval's [patch.crates-io] entries this workspace's serval graph
+# needs (patches are per-workspace-root, not inherited through git deps —
+# woodshed carries the same mirror). Keep in sync with serval's fork pins.
+[patch.crates-io]
+# stylo_taffy names crates.io stylo/stylo_atoms ^0.18; serval pins the same
+# crates from the mark-ik/stylo fork (mark-ik/servo-media-features branch),
+# and stylo declares links = "servo_style_crate" (one Stylo per graph), so
+# mirror serval's patch to unify.
+stylo = { git = "https://github.com/mark-ik/stylo", branch = "mark-ik/servo-media-features" }
+stylo_atoms = { git = "https://github.com/mark-ik/stylo", branch = "mark-ik/servo-media-features" }
+# serval's vendored forks (taffy float-layout, in-process ipc-channel).
+taffy = { git = "https://github.com/mark-ik/serval.git", branch = "main" }
+ipc-channel = { git = "https://github.com/mark-ik/serval.git", branch = "main" }
