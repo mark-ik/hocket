@@ -145,7 +145,9 @@ fn rail(state: &AppState) -> Child {
         peer("Eli", "EL", "#a9b96b", "waiting", false),
         Box::new(el("div", ()).attr("class", "rail-spacer")),
         Box::new(clickable(
-            el("div", text("Hand off \u{2192}")).attr("class", "handoff"),
+            el("div", text("Hand off \u{2192}"))
+                .attr("class", "handoff")
+                .attr("role", "button"),
             |_state: &mut AppState, _| {},
         )),
         Box::new(el("div", text("passes the mic to Jonah")).attr("class", "handoff-note")),
@@ -169,7 +171,9 @@ fn table(state: &AppState) -> Child {
         kids.push(lane(state, i));
     }
     kids.push(Box::new(clickable(
-        el("div", text("+ add track")).attr("class", "add-track"),
+        el("div", text("+ add track"))
+            .attr("class", "add-track")
+            .attr("role", "button"),
         |_state: &mut AppState, _| {},
     )));
     Box::new(el("div", kids).attr("class", "table"))
@@ -194,9 +198,16 @@ fn lane(state: &AppState, i: usize) -> Child {
             el(
                 "div",
                 (
-                    clickable(el("div", ()).attr("class", "arm"), move |state: &mut AppState, _| {
-                        state.arm(i);
-                    }),
+                    clickable(
+                        el("div", ())
+                            .attr("class", "arm")
+                            .attr("role", "switch")
+                            .attr("aria-checked", if track.armed { "true" } else { "false" })
+                            .attr("aria-label", format!("Arm {}", track.name)),
+                        move |state: &mut AppState, _| {
+                            state.arm(i);
+                        },
+                    ),
                     el("span", text(track.name.clone())).attr("class", "lane-title"),
                 ),
             )
@@ -245,7 +256,10 @@ fn lane(state: &AppState, i: usize) -> Child {
                             el("div", bars(layer_seed(track, li), 26)).attr("class", "layer-wave"),
                         ),
                     )
-                    .attr("class", cls),
+                    .attr("class", cls)
+                    .attr("role", "switch")
+                    .attr("aria-checked", if muted { "true" } else { "false" })
+                    .attr("aria-label", format!("Mute layer L{}", li + 1)),
                     move |state: &mut AppState, _| {
                         state.toggle_layer_mute(i, li as u16);
                     },
@@ -273,11 +287,22 @@ fn lane(state: &AppState, i: usize) -> Child {
         "div",
         (
             clickable(
-                el("div", text("M")).attr("class", m_cls),
+                el("div", text("M"))
+                    .attr("class", m_cls)
+                    .attr("role", "switch")
+                    .attr("aria-checked", if track.muted { "true" } else { "false" })
+                    .attr("aria-label", format!("Mute {}", track.name)),
                 move |state: &mut AppState, _| state.toggle_track_mute(i),
             ),
             clickable(
-                el("div", text("S")).attr("class", s_cls),
+                el("div", text("S"))
+                    .attr("class", s_cls)
+                    .attr("role", "switch")
+                    .attr(
+                        "aria-checked",
+                        if state.solo.contains(&track.id) { "true" } else { "false" },
+                    )
+                    .attr("aria-label", format!("Solo {}", track.name)),
                 move |state: &mut AppState, _| state.toggle_solo(i),
             ),
             el("div", text("\u{21bb}")).attr("class", "lctl"),
@@ -319,12 +344,18 @@ fn transport(state: &AppState) -> Child {
                         "div",
                         (
                             clickable(
-                                el("div", text("\u{2212}")).attr("class", "step"),
+                                el("div", text("\u{2212}"))
+                                    .attr("class", "step")
+                                    .attr("role", "button")
+                                    .attr("aria-label", "Decrease tempo"),
                                 |state: &mut AppState, _| state.bpm_nudge(-2.0),
                             ),
                             el("span", text(bpm)).attr("class", "step-val mono"),
                             clickable(
-                                el("div", text("+")).attr("class", "step"),
+                                el("div", text("+"))
+                                    .attr("class", "step")
+                                    .attr("role", "button")
+                                    .attr("aria-label", "Increase tempo"),
                                 |state: &mut AppState, _| state.bpm_nudge(2.0),
                             ),
                         ),
@@ -349,7 +380,10 @@ fn transport(state: &AppState) -> Child {
                             "div",
                             (el("span", ()).attr("class", "led"), el("span", text("Click"))),
                         )
-                        .attr("class", click_cls),
+                        .attr("class", click_cls)
+                        .attr("role", "switch")
+                        .attr("aria-checked", if state.click { "true" } else { "false" })
+                        .attr("aria-label", "Click track"),
                         |state: &mut AppState, _| state.toggle_click(),
                     ),
                     clickable(
@@ -360,7 +394,13 @@ fn transport(state: &AppState) -> Child {
                                 el("span", text("Master clock")),
                             ),
                         )
-                        .attr("class", clock_cls),
+                        .attr("class", clock_cls)
+                        .attr("role", "switch")
+                        .attr(
+                            "aria-checked",
+                            if state.session.master_clock_enabled { "true" } else { "false" },
+                        )
+                        .attr("aria-label", "Master clock"),
                         |state: &mut AppState, _| state.toggle_master_clock(),
                     ),
                 ),
@@ -374,7 +414,11 @@ fn transport(state: &AppState) -> Child {
         "div",
         (
             clickable(
-                el("div", el("div", ()).attr("class", "record-core")).attr("class", rec_cls),
+                el("div", el("div", ()).attr("class", "record-core"))
+                    .attr("class", rec_cls)
+                    .attr("role", "switch")
+                    .attr("aria-checked", if state.is_recording() { "true" } else { "false" })
+                    .attr("aria-label", "Record"),
                 |state: &mut AppState, _| state.toggle_record(),
             ),
             el(
