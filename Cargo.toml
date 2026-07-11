@@ -38,6 +38,9 @@ audio-primitives = { path = "../woodshed/crates/audio-primitives", version = "0.
 # its own model and MediaRef identity; muniment owns backend mechanics.
 muniment = { path = "../muniment", version = "0.1.0", default-features = false }
 armillary = { path = "../armillary", version = "0.1.0" }
+# Identity root for signed, recipient-bound hand-off envelopes. This is a
+# host-agnostic protocol dependency, not project/session state.
+personae = { path = "../personae", version = "0.1.0" }
 
 # Firewheel: modular audio graph engine, the spine of strophe-engine
 # (FT3b-prime). cpal feature enables the default native backend; the

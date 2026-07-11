@@ -180,7 +180,13 @@ mod tests {
     fn arm_then_feed_to_completion() {
         let mut c = Capture::new(4);
         c.arm();
-        assert!(matches!(c.state(), CaptureState::Recording { samples_done: 0, .. }));
+        assert!(matches!(
+            c.state(),
+            CaptureState::Recording {
+                samples_done: 0,
+                ..
+            }
+        ));
         for v in [0.1, 0.2, 0.3, 0.4] {
             c.feed(v);
         }

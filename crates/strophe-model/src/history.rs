@@ -6,12 +6,14 @@
 //! sequences of forward/inverse application; no snapshot retention
 //! required.
 //!
-//! ## v0 constraints
+//! ## Constraints
 //!
-//! - **Linear only.** Committing after a checkout-backward truncates
-//!   any node that's not an ancestor of the new head — git-style
-//!   detached-HEAD-then-commit. Branching (and full CRDT merge) is
-//!   deferred to Feature Target 9.
+//! - **Branches are retained.** Committing from an earlier node creates a new
+//!   child without deleting the existing future. Checkout moves between sibling
+//!   branches through their lowest common ancestor.
+//! - **No edit reconciliation yet.** A remote branch can be integrated and
+//!   checked out, but Strophe does not synthesize a combined head from
+//!   conflicting concurrent edits. That requires an explicit merge policy.
 //! - **Phrase pool is append-only.** Inverting an `AppendLayer` does
 //!   not remove the phrase from `session.phrases` — only the layer
 //!   pop is undone. The pool grows monotonically.
@@ -35,15 +37,32 @@ pub enum Edit {
     /// Root sentinel — present once per history, at the root node.
     Genesis,
 
-    SetBpm { from: f32, to: f32 },
-    SetTimeSignature { from: TimeSignature, to: TimeSignature },
-    SetBarsPerPhrase { from: u8, to: u8 },
-    SetMasterClock { from: bool, to: bool },
-    SetCountInBars { from: u8, to: u8 },
+    SetBpm {
+        from: f32,
+        to: f32,
+    },
+    SetTimeSignature {
+        from: TimeSignature,
+        to: TimeSignature,
+    },
+    SetBarsPerPhrase {
+        from: u8,
+        to: u8,
+    },
+    SetMasterClock {
+        from: bool,
+        to: bool,
+    },
+    SetCountInBars {
+        from: u8,
+        to: u8,
+    },
 
     /// Append a new empty track. Track creation is an edit because the track
     /// list is shared session structure, not host-local presentation state.
-    AddTrack { track: Track },
+    AddTrack {
+        track: Track,
+    },
 
     RenameTrack {
         track_id: TrackId,
@@ -147,7 +166,10 @@ impl Edit {
                 phrase,
                 layer,
             } => {
-                session.phrases.entry(phrase.id).or_insert_with(|| phrase.clone());
+                session
+                    .phrases
+                    .entry(phrase.id)
+                    .or_insert_with(|| phrase.clone());
                 if let Some(t) = session.track_mut(*track_id) {
                     t.layers.push(*layer);
                 }
@@ -289,16 +311,29 @@ pub struct HistoryNode {
 /// Errors specific to history operations.
 #[derive(Debug, PartialEq, Eq)]
 pub enum HistoryError {
-    /// Requested checkout target is not reachable from current head
-    /// in the linear v0 history.
-    NotInLineage(NodeId),
+    /// Requested checkout target is absent from the history graph.
+    UnknownNode(NodeId),
+    /// Incoming graph belongs to a different session history.
+    DifferentRoot { local: NodeId, incoming: NodeId },
+    /// Two graphs contain different payloads under one globally unique node id.
+    ConflictingNode(NodeId),
+    /// An incoming node points to a parent absent from the combined graph.
+    MissingParent { node: NodeId, parent: NodeId },
 }
 
 impl std::fmt::Display for HistoryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::NotInLineage(id) => {
-                write!(f, "history checkout target {id} is not in current lineage")
+            Self::UnknownNode(id) => write!(f, "history checkout target {id} is unknown"),
+            Self::DifferentRoot { local, incoming } => {
+                write!(
+                    f,
+                    "cannot integrate histories with roots {local} and {incoming}"
+                )
+            }
+            Self::ConflictingNode(id) => write!(f, "history node {id} conflicts with local data"),
+            Self::MissingParent { node, parent } => {
+                write!(f, "history node {node} references missing parent {parent}")
             }
         }
     }
@@ -336,14 +371,10 @@ impl History {
         }
     }
 
-    /// Commit an edit. Applies it to the session, appends a new node
-    /// pointing at the current head, and advances head. If the
-    /// current head has descendants (because of a prior
-    /// checkout-backward), those descendants are truncated first —
-    /// v0 is linear, so a new commit after detached HEAD invalidates
-    /// the future it strayed from.
+    /// Commit an edit. Applies it to the session, appends a new node pointing
+    /// at the current head, and advances head. Existing descendants stay in the
+    /// graph, so a commit from an earlier checkout creates a retained branch.
     pub fn commit(&mut self, edit: Edit, session: &mut Session, timestamp_ms: u64) -> NodeId {
-        self.truncate_descendants_of(self.head);
         edit.apply(session);
         let id = NodeId::new();
         self.nodes.insert(
@@ -359,46 +390,40 @@ impl History {
         id
     }
 
-    /// Move the head to a different node, applying or inverting edits
-    /// along the way so that `session` ends up matching the state at
-    /// `target`. Linear-only in v0.
-    pub fn checkout(
-        &mut self,
-        target: NodeId,
-        session: &mut Session,
-    ) -> Result<(), HistoryError> {
+    /// Move the head to a different node, applying or inverting edits along the
+    /// path through the two heads' lowest common ancestor.
+    pub fn checkout(&mut self, target: NodeId, session: &mut Session) -> Result<(), HistoryError> {
         if self.head == target {
             return Ok(());
         }
         if !self.nodes.contains_key(&target) {
-            return Err(HistoryError::NotInLineage(target));
+            return Err(HistoryError::UnknownNode(target));
         }
 
         let head_chain = self.ancestor_chain(self.head);
         let target_chain = self.ancestor_chain(target);
+        let Some((head_index, target_index)) =
+            head_chain
+                .iter()
+                .enumerate()
+                .find_map(|(head_index, common)| {
+                    target_chain
+                        .iter()
+                        .position(|target_node| target_node == common)
+                        .map(|target_index| (head_index, target_index))
+                })
+        else {
+            return Err(HistoryError::UnknownNode(target));
+        };
 
-        // Case 1: target is an ancestor of head — walk back, invert each.
-        if let Some(idx) = head_chain.iter().position(|&id| id == target) {
-            for &id in &head_chain[..idx] {
-                let node = &self.nodes[&id];
-                node.edit.invert(session);
-            }
-            self.head = target;
-            return Ok(());
+        for &id in &head_chain[..head_index] {
+            self.nodes[&id].edit.invert(session);
         }
-
-        // Case 2: head is an ancestor of target — walk forward, apply each.
-        if let Some(idx) = target_chain.iter().position(|&id| id == self.head) {
-            let forward: Vec<NodeId> = target_chain[..idx].iter().rev().copied().collect();
-            for id in forward {
-                let node = &self.nodes[&id];
-                node.edit.apply(session);
-            }
-            self.head = target;
-            return Ok(());
+        for &id in target_chain[..target_index].iter().rev() {
+            self.nodes[&id].edit.apply(session);
         }
-
-        Err(HistoryError::NotInLineage(target))
+        self.head = target;
+        Ok(())
     }
 
     /// Walk from `start` up via parent pointers to the root, inclusive.
@@ -412,21 +437,53 @@ impl History {
         chain
     }
 
-    /// Remove every node that is not an ancestor (inclusive) of `keep`.
-    fn truncate_descendants_of(&mut self, keep: NodeId) {
-        let keepset: BTreeSet<NodeId> = self.ancestor_chain(keep).into_iter().collect();
-        self.nodes.retain(|id, _| keepset.contains(id));
+    /// Integrate nodes from a history with the same root without changing the
+    /// current head or session projection. Returns the number of new nodes.
+    ///
+    /// This is graph union, not semantic edit merge: callers may checkout an
+    /// incoming branch afterwards, but must not claim concurrent conflicting
+    /// edits have been reconciled into one new head.
+    pub fn integrate(&mut self, incoming: &History) -> Result<usize, HistoryError> {
+        if self.root != incoming.root {
+            return Err(HistoryError::DifferentRoot {
+                local: self.root,
+                incoming: incoming.root,
+            });
+        }
+        for (id, incoming_node) in &incoming.nodes {
+            if let Some(local_node) = self.nodes.get(id) {
+                if local_node != incoming_node {
+                    return Err(HistoryError::ConflictingNode(*id));
+                }
+            }
+        }
+        let combined_ids: BTreeSet<NodeId> = self
+            .nodes
+            .keys()
+            .chain(incoming.nodes.keys())
+            .copied()
+            .collect();
+        for node in incoming.nodes.values() {
+            if let Some(parent) = node.parent {
+                if !combined_ids.contains(&parent) {
+                    return Err(HistoryError::MissingParent {
+                        node: node.id,
+                        parent,
+                    });
+                }
+            }
+        }
+        let before = self.nodes.len();
+        self.nodes.extend(incoming.nodes.clone());
+        Ok(self.nodes.len() - before)
     }
 
     /// Whether there's an edit to undo (head is past the root).
     pub fn can_undo(&self) -> bool {
-        self.nodes
-            .get(&self.head)
-            .and_then(|n| n.parent)
-            .is_some()
+        self.nodes.get(&self.head).and_then(|n| n.parent).is_some()
     }
 
-    /// Whether there's an edit to redo (head has a child node).
+    /// Whether there's an edit to redo (head has one or more child nodes).
     pub fn can_redo(&self) -> bool {
         self.nodes.values().any(|n| n.parent == Some(self.head))
     }
@@ -441,9 +498,9 @@ impl History {
         self.checkout(parent, session).is_ok()
     }
 
-    /// Redo: move head forward to its child (if any), re-applying that
-    /// edit. v0 history is linear, so there's at most one child.
-    /// Returns `false` (no-op) if head has no child.
+    /// Redo: move head to the first child in deterministic `NodeId` order.
+    /// Hosts that expose branch choice should call [`Self::checkout`] with the
+    /// chosen child instead.
     pub fn redo(&mut self, session: &mut Session) -> bool {
         let Some(child) = self
             .nodes
@@ -500,7 +557,14 @@ mod tests {
         let mut h = History::new();
         assert!(!h.can_undo() && !h.can_redo());
 
-        h.commit(Edit::SetBpm { from: 120.0, to: 90.0 }, &mut s, 0);
+        h.commit(
+            Edit::SetBpm {
+                from: 120.0,
+                to: 90.0,
+            },
+            &mut s,
+            0,
+        );
         assert_eq!(s.bpm, 90.0);
         assert!(h.can_undo() && !h.can_redo());
 
@@ -555,16 +619,22 @@ mod tests {
     }
 
     #[test]
-    fn commit_after_checkout_back_truncates_future() {
+    fn commit_after_checkout_back_retains_future_branch() {
         let mut s = Session::new_default();
         let mut h = History::new();
         let _n1 = h.commit(
-            Edit::SetBpm { from: 120.0, to: 90.0 },
+            Edit::SetBpm {
+                from: 120.0,
+                to: 90.0,
+            },
             &mut s,
             0,
         );
         let n2 = h.commit(
-            Edit::SetBpm { from: 90.0, to: 60.0 },
+            Edit::SetBpm {
+                from: 90.0,
+                to: 60.0,
+            },
             &mut s,
             0,
         );
@@ -572,13 +642,126 @@ mod tests {
 
         h.checkout(h.root, &mut s).unwrap();
         let _n3 = h.commit(
-            Edit::SetBpm { from: 120.0, to: 100.0 },
+            Edit::SetBpm {
+                from: 120.0,
+                to: 100.0,
+            },
             &mut s,
             0,
         );
 
-        assert!(!h.nodes.contains_key(&n2));
+        assert!(h.nodes.contains_key(&n2));
         assert_eq!(s.bpm, 100.0);
+    }
+
+    #[test]
+    fn checkout_moves_between_retained_sibling_branches() {
+        let mut s = Session::new_default();
+        let mut h = History::new();
+        let root = h.root;
+        let first = h.commit(
+            Edit::SetBpm {
+                from: 120.0,
+                to: 90.0,
+            },
+            &mut s,
+            1,
+        );
+        h.checkout(root, &mut s).unwrap();
+        let second = h.commit(
+            Edit::SetBpm {
+                from: 120.0,
+                to: 100.0,
+            },
+            &mut s,
+            2,
+        );
+
+        h.checkout(first, &mut s).unwrap();
+        assert_eq!(s.bpm, 90.0);
+        h.checkout(second, &mut s).unwrap();
+        assert_eq!(s.bpm, 100.0);
+        assert_eq!(h.nodes.len(), 3);
+    }
+
+    #[test]
+    fn integrate_retains_remote_branch_without_moving_the_local_head() {
+        let mut shared_session = Session::new_default();
+        let mut local = History::new();
+        let shared = local.commit(
+            Edit::SetBpm {
+                from: 120.0,
+                to: 110.0,
+            },
+            &mut shared_session,
+            1,
+        );
+        let mut remote_session = shared_session.clone();
+        let mut remote = local.clone();
+        let local_head = local.commit(
+            Edit::SetBpm {
+                from: 110.0,
+                to: 90.0,
+            },
+            &mut shared_session,
+            2,
+        );
+        let remote_head = remote.commit(
+            Edit::SetBpm {
+                from: 110.0,
+                to: 100.0,
+            },
+            &mut remote_session,
+            3,
+        );
+
+        assert_eq!(local.integrate(&remote).unwrap(), 1);
+        assert_eq!(local.head, local_head);
+        assert!(local.nodes.contains_key(&shared));
+        assert!(local.nodes.contains_key(&remote_head));
+        local.checkout(remote_head, &mut shared_session).unwrap();
+        assert_eq!(shared_session.bpm, 100.0);
+    }
+
+    #[test]
+    fn integrate_rejects_an_incompatible_graph() {
+        let mut local = History::new();
+        let other_root = History::new();
+        assert!(matches!(
+            local.integrate(&other_root),
+            Err(HistoryError::DifferentRoot { .. })
+        ));
+
+        let mut conflicting = local.clone();
+        conflicting
+            .nodes
+            .get_mut(&conflicting.root)
+            .unwrap()
+            .timestamp_ms = 1;
+        assert!(matches!(
+            local.integrate(&conflicting),
+            Err(HistoryError::ConflictingNode(_))
+        ));
+
+        let mut missing_parent = local.clone();
+        let orphan = NodeId::new();
+        let absent_parent = NodeId::new();
+        missing_parent.nodes.insert(
+            orphan,
+            HistoryNode {
+                id: orphan,
+                parent: Some(absent_parent),
+                edit: Edit::Genesis,
+                timestamp_ms: 0,
+            },
+        );
+        assert!(matches!(
+            local.integrate(&missing_parent),
+            Err(HistoryError::MissingParent {
+                node,
+                parent
+            }) if node == orphan && parent == absent_parent
+        ));
     }
 
     #[test]
@@ -843,18 +1026,21 @@ mod tests {
     }
 
     #[test]
-    fn unknown_target_yields_not_in_lineage() {
+    fn unknown_target_yields_unknown_node() {
         let mut s = Session::new_default();
         let mut h = History::new();
         h.commit(
-            Edit::SetBpm { from: 120.0, to: 90.0 },
+            Edit::SetBpm {
+                from: 120.0,
+                to: 90.0,
+            },
             &mut s,
             0,
         );
         let bogus = NodeId::new();
         assert_eq!(
             h.checkout(bogus, &mut s),
-            Err(HistoryError::NotInLineage(bogus))
+            Err(HistoryError::UnknownNode(bogus))
         );
     }
 }

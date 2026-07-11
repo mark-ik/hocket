@@ -7,9 +7,11 @@
 //! and meter drawing use host-owned chisel leaves.
 
 use strophe_model::{PlaybackMode, Track, TrackColor};
-use xilem_serval::{clickable, el, text, AnyView, ServalCtx, ServalElement};
+use xilem_serval::{
+    AnyView, SelectState, ServalCtx, ServalElement, clickable, el, lens, select, text,
+};
 
-use crate::leaves::{wave_key, METER_L, METER_R};
+use crate::leaves::{METER_L, METER_R, wave_key};
 use crate::state::AppState;
 
 pub type Child = Box<dyn AnyView<AppState, (), ServalCtx, ServalElement>>;
@@ -17,11 +19,10 @@ pub type Child = Box<dyn AnyView<AppState, (), ServalCtx, ServalElement>>;
 /// A `<chisel-leaf>` block: carries only its key + box; the host renders the
 /// registered leaf's Path-A commands into it (see [`crate::leaves`]).
 fn chisel_leaf(key: u64, w: u32, h: u32) -> Child {
-    Box::new(
-        el("chisel-leaf", ())
-            .attr("key", key.to_string())
-            .attr("style", format!("display: block; width: {w}px; height: {h}px")),
-    )
+    Box::new(el("chisel-leaf", ()).attr("key", key.to_string()).attr(
+        "style",
+        format!("display: block; width: {w}px; height: {h}px"),
+    ))
 }
 
 /// The summed-loop waveform leaf for track `i`.
@@ -109,10 +110,69 @@ fn top(state: &AppState) -> Child {
                         .attr("aria-label", "Save project"),
                     |state: &mut AppState, _| state.choose_project_to_save(),
                 ),
+                export_length_control(state),
+                clickable(
+                    el("div", text("Export mix"))
+                        .attr("class", "project-command")
+                        .attr("role", "button")
+                        .attr("aria-label", "Export current loop mix as WAV"),
+                    |state: &mut AppState, _| state.choose_mix_export(),
+                ),
             ),
         )
         .attr("class", "top"),
     )
+}
+
+fn export_length_control(state: &AppState) -> Child {
+    let cycle_class = if state.export_uses_bars() {
+        "export-mode-choice"
+    } else {
+        "export-mode-choice export-mode-choice-on"
+    };
+    let bars_class = if state.export_uses_bars() {
+        "export-mode-choice export-mode-choice-on"
+    } else {
+        "export-mode-choice"
+    };
+    let mut children: Vec<Child> = vec![
+        Box::new(clickable(
+            el("div", text("Cycle"))
+                .attr("class", cycle_class)
+                .attr("role", "button")
+                .attr("aria-label", "Export one shared loop cycle")
+                .attr("aria-pressed", (!state.export_uses_bars()).to_string()),
+            |state: &mut AppState, _| state.export_one_cycle(),
+        )),
+        Box::new(clickable(
+            el("div", text("Bars"))
+                .attr("class", bars_class)
+                .attr("role", "button")
+                .attr("aria-label", "Export a selected number of bars")
+                .attr("aria-pressed", state.export_uses_bars().to_string()),
+            |state: &mut AppState, _| state.export_session_bars(),
+        )),
+    ];
+    if let Some(bars) = state.export_bars() {
+        children.extend([
+            Box::new(clickable(
+                el("div", text("-"))
+                    .attr("class", "export-step")
+                    .attr("role", "button")
+                    .attr("aria-label", "Export one fewer bar"),
+                |state: &mut AppState, _| state.adjust_export_bars(-1),
+            )) as Child,
+            Box::new(el("span", text(format!("{bars} bars"))).attr("class", "export-bars mono")),
+            Box::new(clickable(
+                el("div", text("+"))
+                    .attr("class", "export-step")
+                    .attr("role", "button")
+                    .attr("aria-label", "Export one more bar"),
+                |state: &mut AppState, _| state.adjust_export_bars(1),
+            )) as Child,
+        ]);
+    }
+    Box::new(el("div", children).attr("class", "export-length"))
 }
 
 fn body(state: &AppState) -> Child {
@@ -245,8 +305,11 @@ fn lane(state: &AppState, i: usize) -> Child {
         Box::new(
             el(
                 "div",
-                el("span", text("no layers yet \u{00b7} arm and record to start the loop"))
-                    .attr("class", "wave-empty"),
+                el(
+                    "span",
+                    text("no layers yet \u{00b7} arm and record to start the loop"),
+                )
+                .attr("class", "wave-empty"),
             )
             .attr("class", "lane-wave"),
         )
@@ -291,7 +354,11 @@ fn lane(state: &AppState, i: usize) -> Child {
     };
 
     let m_cls = if track.muted { "lctl lctl-on" } else { "lctl" };
-    let s_cls = if state.solo.contains(&track.id) { "lctl lctl-on" } else { "lctl" };
+    let s_cls = if state.solo.contains(&track.id) {
+        "lctl lctl-on"
+    } else {
+        "lctl"
+    };
     let ctl = el(
         "div",
         (
@@ -309,7 +376,11 @@ fn lane(state: &AppState, i: usize) -> Child {
                     .attr("role", "switch")
                     .attr(
                         "aria-checked",
-                        if state.solo.contains(&track.id) { "true" } else { "false" },
+                        if state.solo.contains(&track.id) {
+                            "true"
+                        } else {
+                            "false"
+                        },
                     )
                     .attr("aria-label", format!("Solo {}", track.name)),
                 move |state: &mut AppState, _| state.toggle_solo(i),
@@ -326,7 +397,11 @@ fn lane(state: &AppState, i: usize) -> Child {
 }
 
 fn transport(state: &AppState) -> Child {
-    let rec_cls = if state.is_recording() { "record record-armed" } else { "record" };
+    let rec_cls = if state.is_recording() {
+        "record record-armed"
+    } else {
+        "record"
+    };
     let bpm = format!("{}", state.session.bpm.round() as u32);
     let ts = state.session.time_signature;
     let meter_txt = format!("{}/{}", ts.numerator, ts.denominator);
@@ -334,7 +409,11 @@ fn transport(state: &AppState) -> Child {
         Some(i) => format!(" \u{00b7} {} armed", state.session.tracks[i].name),
         None => " \u{00b7} nothing armed".to_string(),
     };
-    let click_cls = if state.click { "toggle toggle-on" } else { "toggle" };
+    let click_cls = if state.click {
+        "toggle toggle-on"
+    } else {
+        "toggle"
+    };
     let clock_cls = if state.session.master_clock_enabled {
         "toggle toggle-on"
     } else {
@@ -386,7 +465,10 @@ fn transport(state: &AppState) -> Child {
                     clickable(
                         el(
                             "div",
-                            (el("span", ()).attr("class", "led"), el("span", text("Click"))),
+                            (
+                                el("span", ()).attr("class", "led"),
+                                el("span", text("Click")),
+                            ),
                         )
                         .attr("class", click_cls)
                         .attr("role", "switch")
@@ -406,7 +488,11 @@ fn transport(state: &AppState) -> Child {
                         .attr("role", "switch")
                         .attr(
                             "aria-checked",
-                            if state.session.master_clock_enabled { "true" } else { "false" },
+                            if state.session.master_clock_enabled {
+                                "true"
+                            } else {
+                                "false"
+                            },
                         )
                         .attr("aria-label", "Master clock"),
                         |state: &mut AppState, _| state.toggle_master_clock(),
@@ -425,7 +511,14 @@ fn transport(state: &AppState) -> Child {
                 el("div", el("div", ()).attr("class", "record-core"))
                     .attr("class", rec_cls)
                     .attr("role", "switch")
-                    .attr("aria-checked", if state.is_recording() { "true" } else { "false" })
+                    .attr(
+                        "aria-checked",
+                        if state.is_recording() {
+                            "true"
+                        } else {
+                            "false"
+                        },
+                    )
                     .attr("aria-label", "Record"),
                 |state: &mut AppState, _| state.toggle_record(),
             ),
@@ -443,6 +536,7 @@ fn transport(state: &AppState) -> Child {
         el(
             "div",
             (
+                audio_device_controls(state),
                 clickable(
                     el("div", text("\u{25a0}"))
                         .attr("class", "stop")
@@ -458,6 +552,51 @@ fn transport(state: &AppState) -> Child {
     .attr("class", "t-right");
 
     Box::new(el("div", (left, center, right)).attr("class", "transport"))
+}
+
+fn audio_device_controls(state: &AppState) -> Child {
+    let input_labels = state.input_device_options();
+    let output_labels = state.output_device_options();
+    let input_select = lens(
+        move |select_state: &mut SelectState| {
+            let options: Vec<&str> = input_labels.iter().map(String::as_str).collect();
+            select(select_state, &options)
+        },
+        |state: &mut AppState| &mut state.audio_input_select,
+    );
+    let output_select = lens(
+        move |select_state: &mut SelectState| {
+            let options: Vec<&str> = output_labels.iter().map(String::as_str).collect();
+            select(select_state, &options)
+        },
+        |state: &mut AppState| &mut state.audio_output_select,
+    );
+    Box::new(
+        el(
+            "div",
+            (
+                el(
+                    "div",
+                    (
+                        el("span", text("in")).attr("class", "device-label mono"),
+                        input_select,
+                    ),
+                )
+                .attr("class", "device-select"),
+                el(
+                    "div",
+                    (
+                        el("span", text("out")).attr("class", "device-label mono"),
+                        output_select,
+                    ),
+                )
+                .attr("class", "device-select"),
+                el("span", text(state.audio_status_label().to_string()))
+                    .attr("class", "audio-status mono"),
+            ),
+        )
+        .attr("class", "audio-devices"),
+    )
 }
 
 fn meter(state: &AppState) -> Child {

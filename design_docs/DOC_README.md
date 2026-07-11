@@ -29,8 +29,23 @@ before any other doc in this directory.
   with a Serval-host Redb API. The manifest retains Strophe's session/history
   semantics and media keeps its existing `MediaRef` identity.
 - [2026-07-09_project-controls_plan.md](2026-07-09_project-controls_plan.md)
-  - Native desktop open/save controls over the Muniment store, with Armillary
-  moving Redb work off the Serval kernel thread.
+  - **LANDED.** Native desktop open/save controls over the Muniment store, with
+  Armillary moving Redb work off the Serval kernel thread.
+- [2026-07-09_loop-export_plan.md](2026-07-09_loop-export_plan.md)
+  - **LANDED.** Loop-first WAV export through the existing project worker, with
+  explicit behavior for unequal free-capture loop lengths.
+- [2026-07-09_free-loop-export-duration_plan.md](2026-07-09_free-loop-export-duration_plan.md)
+  - **LANDED.** Explicit musical-bar export for unequal free-capture loops,
+  held as host-local export intent rather than project state.
+- [2026-07-09_audio-device-selection_plan.md](2026-07-09_audio-device-selection_plan.md)
+  - **LANDED.** Per-launch local input/output selection over Firewheel CPAL,
+  separate from project persistence and sync.
+- [2026-07-10_signed-handoff-envelope_plan.md](2026-07-10_signed-handoff-envelope_plan.md)
+  - **PARTIAL.** Signed, complete, recipient-bound project hand-off bytes;
+  carrier, review, acceptance, and branch merge remain separate work.
+- [2026-07-10_history-branches_plan.md](2026-07-10_history-branches_plan.md)
+  - **LANDED.** Retained history branches, cross-branch checkout, and validated
+  same-root graph integration; conflicting-edit reconciliation remains open.
 
 ## Archive
 
@@ -126,7 +141,7 @@ Hand-picked technical references that inform Strophe's architecture:
 - **Share with Woodshed, don't fork.** Strophe consumes focused shared crates
   such as `audio-primitives` via path dependency. Keep application-level
   dependencies one-way and extract further only when both projects need them.
-- **Strophos family naming.** Crates use `strophe-*`. The bare
+- **Merely family naming.** Crates use `strophe-*`. The bare
   `strophe` crate name on crates.io is squatted by a dead 2016 redirect;
   this is acceptable because distribution is via itch.io/Gumroad and
   the workspace doesn't need to publish the umbrella name.

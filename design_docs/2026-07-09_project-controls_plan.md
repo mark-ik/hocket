@@ -27,4 +27,7 @@ Serval kernel or the audio engine.
 
 ## Progress
 
-- 2026-07-09: Implementing the project worker, controls, and host-event wake.
+- 2026-07-09: **LANDED.** Native Open and Save controls use `rfd`; an
+  Armillary worker round-trips a Redb project without blocking the host kernel.
+  The header reflects the project path, save state, and unsaved history edits.
+  Native-dialog visual smoke testing remains manual.

@@ -524,7 +524,8 @@ and continues.
   content-addressed blob storage and Murm for session-state sync
 - Hand-off protocol: serialize the history graph to Moothold blobs,
   generate a hand-off token (an addressable history-node pointer),
-  send the token via Murm
+  send the token via Murm. The transport-neutral signed snapshot envelope landed
+  separately on 2026-07-10; it does not yet provide this carrier or a merge law.
 - Pull side: receive token, fetch history nodes, fetch any missing
   media blobs, surface as "incoming hand-off" in the UI
 - Accept: merge incoming history into the local session
@@ -929,10 +930,12 @@ installers, Android via cargo-apk.
   uses `strophe-*` namespaced crates; the bare name is cosmetic since
   distribution is through itch.io/Gumroad, not `cargo install`. If we
   later want the bare name we can file a crates.io abandonment claim.
-- Brand alignment: Strophe sits beside Mere under the Strophos parent
-  brand. The Greek root στροφή/στρόφος ("turn") connects the loop
-  recorder's mechanic (the choral turn = the loop) to its
-  collaboration mechanic (the pass-the-session turn).
+- Brand alignment: Strophe sits beside Mere under the Merely parent
+  brand. The Greek root στροφή/στρόφος ("turn") still names Strophe on
+  its own terms: the choral turn is the loop, the pass-the-session turn
+  is the collaboration mechanic. It no longer echoes the parent, though.
+  The umbrella was *Strophos* (same root) until 2026-07-09, when it
+  became **Merely**. The family link is positioning now, not etymology.
 - Initial deps via path: `../woodshed/crates/woodshed-audio` and the
   local xilem checkout (`../xilem/`). Matching woodshed's pins keeps
   the local xilem source-of-truth coherent across both projects.
@@ -1468,9 +1471,10 @@ Captured here so the rationale survives the session:
     serde_json (HashMap key-order is non-deterministic; would have
     needed BTreeMap conversion anyway). postcard + BTreeMap gives
     deterministic byte output for content-addressing later.
-  - **History v0 is linear, not branching.** Committing after a
-    checkout-backward truncates descendants (git detached-HEAD
-    semantics). Branching + full CRDT merge land in Feature Target 9.
+  - **History now retains branches.** Committing after checkout adds a sibling
+    without deleting existing descendants; checkout crosses siblings through
+    their common ancestor and same-root node sets can be integrated. Full
+    conflicting-edit reconciliation remains Feature Target 9 work.
   - **Phrase pool is monotonic / append-only.** Inverting a
     `CapturePhrase` restores the slot pointer but leaves the phrase
     in `session.phrases`. This keeps redo trivially correct and

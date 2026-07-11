@@ -10,12 +10,13 @@
 
 use std::collections::BTreeMap;
 
+use serde::{Deserialize, Serialize};
 use strophe_model::MediaRef;
 
 /// A media buffer: mono `f32` samples plus the rate they were captured
 /// at. (Multi-channel support is deferred until the engine grows past
 /// mono input.)
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MediaBuffer {
     pub samples: Vec<f32>,
     pub sample_rate: u32,
@@ -55,10 +56,12 @@ impl InMemoryStore {
 impl MediaStore for InMemoryStore {
     fn put(&mut self, samples: &[f32], sample_rate: u32) -> MediaRef {
         let media_ref = hash_buffer(samples, sample_rate);
-        self.buffers.entry(media_ref).or_insert_with(|| MediaBuffer {
-            samples: samples.to_vec(),
-            sample_rate,
-        });
+        self.buffers
+            .entry(media_ref)
+            .or_insert_with(|| MediaBuffer {
+                samples: samples.to_vec(),
+                sample_rate,
+            });
         media_ref
     }
 

@@ -146,14 +146,14 @@ who want exactly that workflow (like myself).
 - **Realtime-safe primitives**: rtrb + basedrop
 - **Persistence**: content-addressed sessions; postcard today, ciborium
   (CBOR) at FT8 to align with Moothold
-- **P2P sync**: Moothold + Murm (sibling projects in the Strophos
+- **P2P sync**: Moothold + Murm (sibling projects in the Merely
   family); content-addressed audio blobs travel separately from
   session structure
 
 ## Relationship to Woodshed and Mere
 
 Strophe is the **pressure vessel for the reusable audio layer** across
-the Strophos family. Hard audio engineering happens in Strophe first;
+the Merely family. Hard audio engineering happens in Strophe first;
 when pieces stabilize, they get extracted to shared crates that
 Woodshed and Mere consume independently. Planned shape:
 

@@ -16,16 +16,22 @@ const ACCENT_FREQ_HZ: f32 = 1200.0;
 const CLICK_DURATION_S: f32 = 0.05;
 const CLICK_AMPLITUDE: f32 = 0.4;
 
-/// Render one bar of clicks at the given BPM into a mono `Vec<f32>`.
+/// Integer audio frames in one full bar at the given tempo and meter.
+pub fn frames_per_bar(sample_rate: u32, bpm: f32, beats_per_bar: u8, beat_unit: u8) -> usize {
+    audio_primitives::click::frames_per_bar(sample_rate, bpm, beats_per_bar, beat_unit)
+}
+
+/// Render one bar of clicks at the given BPM and meter into a mono `Vec<f32>`.
 ///
 /// - Downbeat (beat 0) uses an accented higher frequency.
 /// - Other beats use the base frequency.
 /// - Each click is a 50 ms sine burst with exponential decay.
-pub fn render_click_loop(sample_rate: u32, bpm: f32, beats_per_bar: u8) -> Vec<f32> {
-    audio_primitives::click::render_click_bar(
+pub fn render_click_loop(sample_rate: u32, bpm: f32, beats_per_bar: u8, beat_unit: u8) -> Vec<f32> {
+    audio_primitives::click::render_click_bar_in_meter(
         sample_rate,
         bpm,
         beats_per_bar,
+        beat_unit,
         BASE_FREQ_HZ,
         ACCENT_FREQ_HZ,
         CLICK_DURATION_S,
@@ -42,18 +48,15 @@ mod tests {
         // 120 BPM, 4 beats per bar, 48 kHz:
         // samples per beat = 48000 * 60 / 120 = 24000
         // total = 24000 * 4 = 96000
-        let buf = render_click_loop(48_000, 120.0, 4);
+        let buf = render_click_loop(48_000, 120.0, 4, 4);
         assert_eq!(buf.len(), 96_000);
     }
 
     #[test]
     fn render_click_loop_starts_with_accent() {
-        let buf = render_click_loop(48_000, 120.0, 4);
+        let buf = render_click_loop(48_000, 120.0, 4, 4);
         // Click 0 (downbeat) is louder than later clicks at the same offset.
-        let downbeat_peak = buf[0..2400]
-            .iter()
-            .map(|s| s.abs())
-            .fold(0.0_f32, f32::max);
+        let downbeat_peak = buf[0..2400].iter().map(|s| s.abs()).fold(0.0_f32, f32::max);
         let samples_per_beat = 24_000;
         let beat1_peak = buf[samples_per_beat..samples_per_beat + 2400]
             .iter()
@@ -67,9 +70,16 @@ mod tests {
 
     #[test]
     fn render_click_loop_is_silent_between_clicks() {
-        let buf = render_click_loop(48_000, 120.0, 4);
+        let buf = render_click_loop(48_000, 120.0, 4, 4);
         // 100 ms after a click (well past the 50ms duration) should be silent.
         let silent_offset = 48_000 / 10; // 100ms in samples
         assert!(buf[silent_offset].abs() < 1e-6);
+    }
+
+    #[test]
+    fn render_click_loop_honors_the_beat_unit() {
+        let buf = render_click_loop(48_000, 120.0, 3, 8);
+        assert_eq!(buf.len(), 36_000);
+        assert_eq!(frames_per_bar(48_000, 120.0, 3, 8), buf.len());
     }
 }

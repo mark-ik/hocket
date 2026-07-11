@@ -38,6 +38,15 @@ pub fn sheet() -> String {
                    line-height: 30px; padding: 0 10px; margin-left: 7px; }
 .project-command:hover { color: var(--text); border-color: var(--line); }
 .project-save { color: var(--voice-teal); }
+.export-length { display: flex; align-items: center; height: 30px; margin-left: 10px;
+                 border: 1px solid var(--line-soft); border-radius: 7px; overflow: hidden; }
+.export-mode-choice { color: var(--text-faint); font-size: 11px; line-height: 30px; padding: 0 8px;
+                      border-right: 1px solid var(--line-soft); }
+.export-mode-choice:hover { color: var(--text); }
+.export-mode-choice-on { color: var(--voice-amber); background-color: var(--raised); }
+.export-step { color: var(--text-dim); font-size: 15px; line-height: 30px; padding: 0 7px; }
+.export-step:hover { color: var(--text); background-color: var(--raised); }
+.export-bars { color: var(--text-dim); font-size: 10px; min-width: 38px; text-align: center; }
 
 /* middle row: rail + table. `min-height: 0` overrides flexbox's default
    `min-height: auto` so `.body` can shrink below its lanes' min-content and
@@ -115,6 +124,22 @@ pub fn sheet() -> String {
 .t-left { display: flex; align-items: center; flex-grow: 1; }
 .t-right { display: flex; align-items: center; flex-grow: 1; }
 .t-right-inner { display: flex; align-items: center; margin-left: auto; }
+.audio-devices { display: flex; flex-direction: column; align-items: flex-end; margin-right: 14px; }
+.device-select { display: flex; align-items: center; margin-bottom: 3px; }
+.device-label { color: var(--text-faint); font-size: 9px; width: 24px; text-transform: uppercase; }
+.device-select .select { min-width: 154px; z-index: 2; }
+.device-select .select-box { height: 20px; box-sizing: border-box; overflow: hidden; white-space: nowrap;
+                             text-overflow: ellipsis; background-color: var(--raised); color: var(--text-dim);
+                             border: 1px solid var(--line-soft); border-radius: 4px; font-size: 10px;
+                             line-height: 18px; padding: 0 8px; }
+.device-select .select-box:hover { color: var(--text); border-color: var(--line); }
+.device-select .select-list { max-width: 240px; max-height: 170px; overflow: scroll; z-index: 3;
+                              background-color: var(--surface-2); border: 1px solid var(--line);
+                              box-sizing: border-box; }
+.device-select .select-option { color: var(--text-dim); font-size: 11px; padding: 5px 8px; }
+.device-select .select-option:hover { color: var(--text); background-color: var(--raised); }
+.audio-status { color: var(--text-faint); font-size: 9px; max-width: 178px; overflow: hidden;
+                white-space: nowrap; text-overflow: ellipsis; }
 .readout { display: flex; flex-direction: column; margin-right: 18px; }
 .readout-val { font-size: 22px; color: var(--text); }
 .readout-val small { font-size: 12px; color: var(--text-dim); }

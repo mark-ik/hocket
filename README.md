@@ -18,8 +18,21 @@ creation. Native Open and Save controls queue project work off the UI thread,
 then persist or reopen a Redb-backed bundle through Muniment. New sessions begin
 empty.
 
-Not built yet: export, device selection, peer hand-off, and synchronization.
+Not built yet: peer hand-off and synchronization.
 The pass-the-mic UI is deliberately local until those pieces exist.
+
+The engine now has a signed, recipient-bound hand-off envelope for a complete
+project snapshot and its media, plus a transactional same-root branch-acceptance
+rule. It is transport-neutral groundwork only: the desktop host cannot send,
+receive, review, or accept one yet.
+
+History now retains divergent branches and can integrate a same-root remote
+graph without replacing local work. It does not yet reconcile conflicting edits
+into a new merged head.
+
+Audio input and output can be selected per launch from the transport. Those are
+host settings rather than project state; device preference persistence and
+hot-plug refresh remain follow-ups.
 
 Start with [design_docs/DOC_README.md](design_docs/DOC_README.md) for the
 authoritative project and planning documents.

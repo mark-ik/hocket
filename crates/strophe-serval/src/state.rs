@@ -12,14 +12,18 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use armillary::ActorHandle;
+use strophe_engine::export::ExportLength;
 use strophe_engine::media::{InMemoryStore, MediaStore};
-use strophe_engine::{CapturePhase, Engine, LayerKey};
-use strophe_model::{Edit, History, Layer, MediaRef, Phrase, ProjectBundle, Session, Track, TrackColor, TrackId};
+use strophe_engine::{
+    AudioDeviceSelection, AudioDevices, CapturePhase, Engine, LayerKey, available_audio_devices,
+};
+use strophe_model::{
+    Edit, History, Layer, MediaRef, Phrase, ProjectBundle, Session, Track, TrackColor, TrackId,
+};
+use xilem_serval::SelectState;
 
 use crate::project_io::{ProjectCommand, ProjectUpdate};
 
-/// Bars captured per Record press (master-clock / bar-aligned mode).
-const CAPTURE_BARS: u8 = 1;
 /// Meter dB floor for the 0..1 level the output meters display.
 const METER_FLOOR_DB: f32 = -60.0;
 
@@ -27,7 +31,9 @@ enum ProjectStatus {
     Idle,
     Saving,
     Loading,
+    Exporting,
     Saved,
+    Exported(PathBuf),
     Error(String),
 }
 
@@ -54,6 +60,17 @@ pub struct AppState {
     saved_head: strophe_model::NodeId,
     project_status: ProjectStatus,
     project_worker: ActorHandle<ProjectCommand>,
+    /// Host-local export intent. It changes only the rendered file, never the
+    /// project graph or its syncable history.
+    export_length: ExportLength,
+    /// Per-launch device catalog and selections. Device IDs belong to the host,
+    /// not to a project that might travel to another machine.
+    audio_devices: AudioDevices,
+    pub(crate) audio_input_select: SelectState,
+    pub(crate) audio_output_select: SelectState,
+    applied_audio_input: usize,
+    applied_audio_output: usize,
+    audio_status: String,
 
     // === app-local UI (graduation notes) ===
     /// Audible metronome. Drives the engine click directly; distinct from the
@@ -82,12 +99,13 @@ impl AppState {
         missing_media: BTreeSet<MediaRef>,
         project_worker: ActorHandle<ProjectCommand>,
     ) -> Self {
-        let (engine, sample_rate) = match Engine::new() {
+        let audio_devices = available_audio_devices();
+        let (engine, sample_rate, audio_status) = match Engine::new() {
             Ok(e) => {
                 let sr = e.sample_rate();
-                (Ok(e), sr)
+                (Ok(e), sr, "system audio".to_string())
             }
-            Err(e) => (Err(e.to_string()), 0),
+            Err(e) => (Err(e.to_string()), 0, "audio unavailable".to_string()),
         };
         let saved_head = history.head;
         let mut state = Self {
@@ -105,6 +123,13 @@ impl AppState {
             saved_head,
             project_status: ProjectStatus::Idle,
             project_worker,
+            export_length: ExportLength::OneCycle,
+            audio_devices,
+            audio_input_select: SelectState::default(),
+            audio_output_select: SelectState::default(),
+            applied_audio_input: 0,
+            applied_audio_output: 0,
+            audio_status,
             click: true,
             solo: BTreeSet::new(),
         };
@@ -125,18 +150,34 @@ impl AppState {
         match &self.project_status {
             ProjectStatus::Saving => "saving".to_string(),
             ProjectStatus::Loading => "opening".to_string(),
+            ProjectStatus::Exporting => "exporting mix".to_string(),
             ProjectStatus::Saved => {
-                if self.is_dirty() { "unsaved changes".to_string() } else { "saved".to_string() }
+                if self.is_dirty() {
+                    "unsaved changes".to_string()
+                } else {
+                    "saved".to_string()
+                }
             }
+            ProjectStatus::Exported(path) => format!(
+                "exported {}",
+                path.file_name().unwrap_or_default().to_string_lossy()
+            ),
             ProjectStatus::Error(message) => format!("project error: {message}"),
             ProjectStatus::Idle => {
-                if self.is_dirty() { "unsaved changes".to_string() } else { "new session".to_string() }
+                if self.is_dirty() {
+                    "unsaved changes".to_string()
+                } else {
+                    "new session".to_string()
+                }
             }
         }
     }
 
     pub fn is_project_io_active(&self) -> bool {
-        matches!(self.project_status, ProjectStatus::Saving | ProjectStatus::Loading)
+        matches!(
+            self.project_status,
+            ProjectStatus::Saving | ProjectStatus::Loading | ProjectStatus::Exporting
+        )
     }
 
     pub fn choose_project_to_open(&mut self) {
@@ -172,7 +213,7 @@ impl AppState {
                 .add_filter("Strophe project", &["strophe"])
                 .set_file_name("untitled.strophe")
                 .save_file()
-                .map(ensure_project_extension),
+                .map(|path| ensure_extension(path, "strophe")),
         };
         if let Some(path) = path {
             let bundle = ProjectBundle::new(self.session.clone(), self.history.clone());
@@ -186,6 +227,65 @@ impl AppState {
                 self.project_status = ProjectStatus::Error("project worker stopped".to_string());
             }
         }
+    }
+
+    pub fn choose_mix_export(&mut self) {
+        if self.is_project_io_active() {
+            return;
+        }
+        if self.is_recording() {
+            self.project_status =
+                ProjectStatus::Error("stop recording before exporting".to_string());
+            return;
+        }
+        let file_name = format!("{}-mix.wav", self.project_label());
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("WAV audio", &["wav"])
+            .set_file_name(file_name)
+            .save_file()
+            .map(|path| ensure_extension(path, "wav"))
+        {
+            self.project_status = ProjectStatus::Exporting;
+            if !self.project_worker.command(ProjectCommand::ExportMix {
+                path,
+                session: self.session.clone(),
+                media: self.store.clone(),
+                solo: self.solo.clone(),
+                length: self.export_length,
+            }) {
+                self.project_status = ProjectStatus::Error("project worker stopped".to_string());
+            }
+        }
+    }
+
+    pub fn export_uses_bars(&self) -> bool {
+        matches!(self.export_length, ExportLength::Bars(_))
+    }
+
+    pub fn export_bars(&self) -> Option<u8> {
+        match self.export_length {
+            ExportLength::Bars(bars) => Some(bars),
+            ExportLength::OneCycle => None,
+        }
+    }
+
+    pub fn export_one_cycle(&mut self) {
+        self.export_length = ExportLength::OneCycle;
+    }
+
+    pub fn export_session_bars(&mut self) {
+        self.export_length = ExportLength::Bars(self.session.bars_per_phrase.max(1));
+    }
+
+    pub fn adjust_export_bars(&mut self, delta: i8) {
+        let bars = self
+            .export_bars()
+            .unwrap_or_else(|| self.session.bars_per_phrase.max(1));
+        self.export_length = ExportLength::Bars(if delta.is_negative() {
+            bars.saturating_sub(delta.unsigned_abs()).max(1)
+        } else {
+            bars.saturating_add(delta as u8)
+        });
     }
 
     pub fn apply_project_update(&mut self, update: ProjectUpdate) {
@@ -209,6 +309,9 @@ impl AppState {
                 self.project_status = ProjectStatus::Saved;
                 self.resync_tempo();
                 self.reconcile_all_playback();
+            }
+            ProjectUpdate::Exported { path } => {
+                self.project_status = ProjectStatus::Exported(path);
             }
             ProjectUpdate::Failed { action, message } => {
                 self.project_status = ProjectStatus::Error(format!("{action}: {message}"));
@@ -237,7 +340,9 @@ impl AppState {
     pub fn is_recording(&self) -> bool {
         matches!(
             self.capture_phase,
-            CapturePhase::Waiting { .. } | CapturePhase::Recording { .. } | CapturePhase::FreeRecording { .. }
+            CapturePhase::Waiting { .. }
+                | CapturePhase::Recording { .. }
+                | CapturePhase::FreeRecording { .. }
         )
     }
 
@@ -257,15 +362,32 @@ impl AppState {
         self.meter_db.get(ch).copied().unwrap_or(f32::NEG_INFINITY)
     }
 
+    pub fn input_device_options(&self) -> Vec<String> {
+        audio_device_options(&self.audio_devices.inputs)
+    }
+
+    pub fn output_device_options(&self) -> Vec<String> {
+        audio_device_options(&self.audio_devices.outputs)
+    }
+
+    pub fn audio_status_label(&self) -> &str {
+        &self.audio_status
+    }
+
     // === the engine tick (host calls ~60fps via runner.update) ===
 
     /// Advance the engine, read back the meter + capture phase, and promote a
     /// completed capture into a model layer + looping playback.
     pub fn tick(&mut self) {
+        self.apply_audio_device_selection();
         let (meter, phase, captured) = match &mut self.engine {
             Ok(engine) => {
                 let _ = engine.tick();
-                (engine.peak_db(), engine.pending_capture_progress(), engine.take_bar_aligned_capture())
+                (
+                    engine.peak_db(),
+                    engine.pending_capture_progress(),
+                    engine.take_bar_aligned_capture(),
+                )
             }
             Err(_) => (self.meter_db, self.capture_phase.clone(), None),
         };
@@ -273,18 +395,29 @@ impl AppState {
         self.capture_phase = phase;
 
         if let Some(samples) = captured {
-            let Some(track_idx) = self.capturing_track.take() else { return };
+            let Some(track_idx) = self.capturing_track.take() else {
+                return;
+            };
             // A free capture stopped instantly yields an empty buffer — skip.
             if samples.is_empty() || track_idx >= self.session.tracks.len() {
                 return;
             }
             let media = self.store.put(&samples, self.sample_rate);
-            let phrase = Phrase::new(media, self.session.bars_per_phrase, self.session.bpm, Self::now_ms());
+            let phrase = Phrase::new(
+                media,
+                self.session.bars_per_phrase,
+                self.session.bpm,
+                Self::now_ms(),
+            );
             let layer = Layer::new(phrase.id);
             let track_id = self.session.tracks[track_idx].id;
             let layer_index = self.session.tracks[track_idx].layers.len() as u16;
             self.history.commit(
-                Edit::AppendLayer { track_id, phrase, layer },
+                Edit::AppendLayer {
+                    track_id,
+                    phrase,
+                    layer,
+                },
                 &mut self.session,
                 Self::now_ms(),
             );
@@ -317,12 +450,26 @@ impl AppState {
         let now = Self::now_ms();
         if let Some(prev) = self.armed_index() {
             let track_id = self.session.tracks[prev].id;
-            self.history
-                .commit(Edit::ArmTrack { track_id, from: true, to: false }, &mut self.session, now);
+            self.history.commit(
+                Edit::ArmTrack {
+                    track_id,
+                    from: true,
+                    to: false,
+                },
+                &mut self.session,
+                now,
+            );
         }
         let track_id = self.session.tracks[idx].id;
-        self.history
-            .commit(Edit::ArmTrack { track_id, from: false, to: true }, &mut self.session, now);
+        self.history.commit(
+            Edit::ArmTrack {
+                track_id,
+                from: false,
+                to: true,
+            },
+            &mut self.session,
+            now,
+        );
     }
 
     /// Add an empty track using the session's selected playback profile.
@@ -333,21 +480,23 @@ impl AppState {
             TrackColor::from_palette_index(index),
             self.session.default_playback_mode,
         );
-        self.history.commit(
-            Edit::AddTrack { track },
-            &mut self.session,
-            Self::now_ms(),
-        );
+        self.history
+            .commit(Edit::AddTrack { track }, &mut self.session, Self::now_ms());
     }
 
     /// The Record gesture. Master clock on → a bar-aligned, count-in, fixed
     /// capture. Master clock off → toggle a free/variable-length capture.
     pub fn toggle_record(&mut self) {
-        let Some(armed) = self.armed_index() else { return };
+        let Some(armed) = self.armed_index() else {
+            return;
+        };
         if self.session.master_clock_enabled {
             let count_in = self.session.count_in_bars;
             if let Ok(engine) = &mut self.engine {
-                if engine.arm_bar_aligned_capture(CAPTURE_BARS, count_in).is_ok() {
+                if engine
+                    .arm_bar_aligned_capture(self.session.bars_per_phrase, count_in)
+                    .is_ok()
+                {
                     self.capturing_track = Some(armed);
                 }
             }
@@ -369,10 +518,19 @@ impl AppState {
 
     /// Toggle track-level mute (the lane's M): stop / replay the track's voices.
     pub fn toggle_track_mute(&mut self, idx: usize) {
-        let Some(track) = self.session.tracks.get(idx) else { return };
+        let Some(track) = self.session.tracks.get(idx) else {
+            return;
+        };
         let (track_id, from) = (track.id, track.muted);
-        self.history
-            .commit(Edit::MuteTrack { track_id, from, to: !from }, &mut self.session, Self::now_ms());
+        self.history.commit(
+            Edit::MuteTrack {
+                track_id,
+                from,
+                to: !from,
+            },
+            &mut self.session,
+            Self::now_ms(),
+        );
         if !from {
             // Now muted: stop every voice on this track.
             let keys: Vec<LayerKey> = self
@@ -391,12 +549,21 @@ impl AppState {
 
     /// Toggle one layer's mute (tap a layer row): stop / replay that voice.
     pub fn toggle_layer_mute(&mut self, track_idx: usize, layer_index: u16) {
-        let Some(track) = self.session.tracks.get(track_idx) else { return };
+        let Some(track) = self.session.tracks.get(track_idx) else {
+            return;
+        };
         let track_id = track.id;
-        let Some(layer) = track.layers.get(layer_index as usize) else { return };
+        let Some(layer) = track.layers.get(layer_index as usize) else {
+            return;
+        };
         let from = layer.muted;
         self.history.commit(
-            Edit::SetLayerMute { track_id, layer_index, from, to: !from },
+            Edit::SetLayerMute {
+                track_id,
+                layer_index,
+                from,
+                to: !from,
+            },
             &mut self.session,
             Self::now_ms(),
         );
@@ -424,8 +591,11 @@ impl AppState {
     /// the audible metronome is the separate [`toggle_click`](Self::toggle_click).
     pub fn toggle_master_clock(&mut self) {
         let from = self.session.master_clock_enabled;
-        self.history
-            .commit(Edit::SetMasterClock { from, to: !from }, &mut self.session, Self::now_ms());
+        self.history.commit(
+            Edit::SetMasterClock { from, to: !from },
+            &mut self.session,
+            Self::now_ms(),
+        );
     }
 
     /// Toggle the audible metronome click on the engine.
@@ -439,7 +609,9 @@ impl AppState {
     /// Toggle solo membership for track `idx` and reconcile the engine with the
     /// resulting audible-track set.
     pub fn toggle_solo(&mut self, idx: usize) {
-        let Some(track) = self.session.tracks.get(idx) else { return };
+        let Some(track) = self.session.tracks.get(idx) else {
+            return;
+        };
         let id = track.id;
         if !self.solo.remove(&id) {
             self.solo.insert(id);
@@ -449,17 +621,75 @@ impl AppState {
 
     // === engine playback helpers ===
 
-    /// Push tempo + bar length to the click and re-apply the click enable.
+    /// Push tempo + full time signature to the click and re-apply the click enable.
     /// Stops all playing loops first — they were captured at the old grid and
     /// would drift.
     fn resync_tempo(&mut self) {
         self.stop_all();
         let bpm = self.session.bpm;
-        let beats = self.session.time_signature.numerator;
+        let time_signature = self.session.time_signature;
         let click = self.click;
         if let Ok(engine) = &mut self.engine {
-            let _ = engine.set_tempo(bpm, beats);
+            let _ = engine.set_tempo(bpm, time_signature.numerator, time_signature.denominator);
             engine.set_click_enabled(click);
+        }
+    }
+
+    fn apply_audio_device_selection(&mut self) {
+        let input = self.audio_input_select.selected;
+        let output = self.audio_output_select.selected;
+        if input == self.applied_audio_input && output == self.applied_audio_output {
+            return;
+        }
+        if self.is_recording() {
+            self.audio_input_select.selected = self.applied_audio_input;
+            self.audio_output_select.selected = self.applied_audio_output;
+            self.audio_status = "stop capture before changing audio".to_string();
+            return;
+        }
+
+        let selection = AudioDeviceSelection {
+            input_id: selected_device_id(&self.audio_devices.inputs, input),
+            output_id: selected_device_id(&self.audio_devices.outputs, output),
+        };
+        self.stop_all();
+        let old_engine = std::mem::replace(&mut self.engine, Err("restarting audio".to_string()));
+        drop(old_engine);
+
+        match Engine::new_with_audio_devices(&selection) {
+            Ok(engine) => {
+                self.sample_rate = engine.sample_rate();
+                self.engine = Ok(engine);
+                self.applied_audio_input = input;
+                self.applied_audio_output = output;
+                self.audio_status = "audio switched".to_string();
+                self.resync_tempo();
+                self.reconcile_all_playback();
+            }
+            Err(error) => {
+                self.audio_input_select.selected = self.applied_audio_input;
+                self.audio_output_select.selected = self.applied_audio_output;
+                match Engine::new() {
+                    Ok(engine) => {
+                        self.sample_rate = engine.sample_rate();
+                        self.engine = Ok(engine);
+                        self.audio_input_select.selected = 0;
+                        self.audio_output_select.selected = 0;
+                        self.applied_audio_input = 0;
+                        self.applied_audio_output = 0;
+                        self.audio_status =
+                            format!("audio switch failed: {error}; restored default");
+                        self.resync_tempo();
+                        self.reconcile_all_playback();
+                    }
+                    Err(fallback_error) => {
+                        self.engine = Err(format!(
+                            "{error}; default audio also failed: {fallback_error}"
+                        ));
+                        self.audio_status = "audio unavailable".to_string();
+                    }
+                }
+            }
         }
     }
 
@@ -483,12 +713,18 @@ impl AppState {
 
     /// (Re)play every audible layer of track `idx` from the store.
     fn reconcile_track_playback(&mut self, idx: usize) {
-        let Some(track) = self.session.tracks.get(idx) else { return };
+        let Some(track) = self.session.tracks.get(idx) else {
+            return;
+        };
         let audible: Vec<usize> = track
             .layers
             .iter()
             .enumerate()
-            .filter(|(li, layer)| track.playback_mode.is_layer_audible(*li as u16, layer.muted))
+            .filter(|(li, layer)| {
+                track
+                    .playback_mode
+                    .is_layer_audible(*li as u16, layer.muted)
+            })
             .map(|(li, _)| li)
             .collect();
         for li in audible {
@@ -497,7 +733,9 @@ impl AppState {
     }
 
     fn track_is_audible(&self, idx: usize) -> bool {
-        let Some(track) = self.session.tracks.get(idx) else { return false };
+        let Some(track) = self.session.tracks.get(idx) else {
+            return false;
+        };
         !track.muted && (self.solo.is_empty() || self.solo.contains(&track.id))
     }
 
@@ -514,14 +752,24 @@ impl AppState {
     /// Play a layer from the store at the next bar, at its stored gain. No-op
     /// when the media is unavailable in the current store.
     fn play_layer_from_store(&mut self, track_idx: usize, layer_idx: usize) {
-        let Some(track) = self.session.tracks.get(track_idx) else { return };
-        let Some(layer) = track.layers.get(layer_idx) else { return };
-        let Some(phrase) = self.session.phrases.get(&layer.phrase_id) else { return };
-        let Some(buf) = self.store.get(&phrase.media) else { return };
+        let Some(track) = self.session.tracks.get(track_idx) else {
+            return;
+        };
+        let Some(layer) = track.layers.get(layer_idx) else {
+            return;
+        };
+        let Some(phrase) = self.session.phrases.get(&layer.phrase_id) else {
+            return;
+        };
+        let Some(buf) = self.store.get(&phrase.media) else {
+            return;
+        };
         let samples = buf.samples.clone();
+        let sample_rate = buf.sample_rate;
         let (gain, key) = (layer.gain, LayerKey::new(track.id, layer_idx as u16));
         if let Ok(engine) = &mut self.engine {
-            let _ = engine.play_layer_at_next_bar(key, samples, gain, true);
+            let _ =
+                engine.play_layer_at_next_bar_at_sample_rate(key, samples, sample_rate, gain, true);
         }
         if !self.playing.contains(&key) {
             self.playing.push(key);
@@ -529,9 +777,47 @@ impl AppState {
     }
 }
 
-fn ensure_project_extension(mut path: PathBuf) -> PathBuf {
+fn ensure_extension(mut path: PathBuf, extension: &str) -> PathBuf {
     if path.extension().is_none() {
-        path.set_extension("strophe");
+        path.set_extension(extension);
     }
     path
+}
+
+fn audio_device_options(devices: &[strophe_engine::AudioDevice]) -> Vec<String> {
+    std::iter::once("System default".to_string())
+        .chain(devices.iter().map(|device| {
+            if device.is_default {
+                format!("{} (default)", device.name)
+            } else {
+                device.name.clone()
+            }
+        }))
+        .collect()
+}
+
+fn selected_device_id(devices: &[strophe_engine::AudioDevice], selected: usize) -> Option<String> {
+    devices
+        .get(selected.checked_sub(1)?)
+        .map(|device| device.id.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn device_options_reserve_zero_for_the_system_default() {
+        let devices = vec![strophe_engine::AudioDevice {
+            id: "input-1".to_string(),
+            name: "Studio input".to_string(),
+            is_default: true,
+        }];
+        assert_eq!(
+            audio_device_options(&devices),
+            vec!["System default", "Studio input (default)"]
+        );
+        assert_eq!(selected_device_id(&devices, 0), None);
+        assert_eq!(selected_device_id(&devices, 1).as_deref(), Some("input-1"));
+    }
 }

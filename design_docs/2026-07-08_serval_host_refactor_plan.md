@@ -15,7 +15,7 @@ Code samples are illustrative unless marked implementation-ready.
 ## Why
 
 The `mark-ik/xilem` fork (`xilem` / `masonry` / `masonry_winit`,
-`woodshed-theme` branch) is the last non-serval UI stack in the Strophos family.
+`woodshed-theme` branch) is the last non-serval UI stack in the Merely family.
 Woodshed already proved the exit: it migrated its whole app onto `xilem_serval`
 (the S0-S5 arc in
 `woodshed/design_docs/2026-07-04_serval_host_cross_platform_plan.md`) and, at its

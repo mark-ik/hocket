@@ -9,9 +9,11 @@ use std::sync::mpsc::Receiver;
 
 use armillary::{ActorHandle, Emitter, Wake, spawn};
 use muniment::RedbBackend;
+use std::collections::BTreeSet;
+use strophe_engine::export::{ExportLength, render_mix, write_stereo_wav};
 use strophe_engine::media::InMemoryStore;
 use strophe_engine::project_store::{LoadedProject, ProjectStore};
-use strophe_model::{NodeId, ProjectBundle};
+use strophe_model::{NodeId, ProjectBundle, Session, TrackId};
 
 pub enum ProjectCommand {
     Save {
@@ -22,6 +24,13 @@ pub enum ProjectCommand {
     },
     Open {
         path: PathBuf,
+    },
+    ExportMix {
+        path: PathBuf,
+        session: Session,
+        media: InMemoryStore,
+        solo: BTreeSet<TrackId>,
+        length: ExportLength,
     },
 }
 
@@ -34,15 +43,16 @@ pub enum ProjectUpdate {
         path: PathBuf,
         loaded: LoadedProject,
     },
+    Exported {
+        path: PathBuf,
+    },
     Failed {
         action: &'static str,
         message: String,
     },
 }
 
-pub fn spawn_project_worker(
-    wake: Wake,
-) -> (ActorHandle<ProjectCommand>, Receiver<ProjectUpdate>) {
+pub fn spawn_project_worker(wake: Wake) -> (ActorHandle<ProjectCommand>, Receiver<ProjectUpdate>) {
     spawn(wake, |commands, updates| {
         while let Ok(command) = commands.recv() {
             run_command(command, &updates);
@@ -87,6 +97,21 @@ fn run_command(command: ProjectCommand, updates: &Emitter<ProjectUpdate>) {
                 }),
             }
         }
+        ProjectCommand::ExportMix {
+            path,
+            session,
+            media,
+            solo,
+            length,
+        } => match render_mix(&session, &media, &solo, length)
+            .and_then(|mix| write_stereo_wav(&path, &mix))
+        {
+            Ok(()) => updates.emit(ProjectUpdate::Exported { path }),
+            Err(error) => updates.emit(ProjectUpdate::Failed {
+                action: "export",
+                message: error.to_string(),
+            }),
+        },
     }
 }
 
@@ -96,7 +121,8 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use strophe_model::{History, Session};
+    use strophe_engine::media::MediaStore;
+    use strophe_model::{History, Layer, Phrase, Session};
 
     #[test]
     fn worker_saves_then_opens_a_project() {
@@ -114,7 +140,10 @@ mod tests {
             saved_head,
         }));
         match updates.recv_timeout(Duration::from_secs(5)).unwrap() {
-            ProjectUpdate::Saved { path: saved, saved_head: head } => {
+            ProjectUpdate::Saved {
+                path: saved,
+                saved_head: head,
+            } => {
                 assert_eq!(saved, path);
                 assert_eq!(head, saved_head);
             }
@@ -126,6 +155,34 @@ mod tests {
             ProjectUpdate::Opened { loaded, .. } => assert_eq!(loaded.bundle, bundle),
             _ => panic!("expected open result"),
         }
-        worker.join();
+        drop(worker);
+    }
+
+    #[test]
+    fn worker_exports_audible_mix_to_wav() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("practice-mix.wav");
+        let wake: Wake = Arc::new(|| {});
+        let (worker, updates) = spawn_project_worker(wake);
+        let mut session = Session::new_default();
+        let mut media = InMemoryStore::new();
+        let reference = media.put(&[0.25, -0.25], 48_000);
+        let phrase = Phrase::new(reference, session.bars_per_phrase, session.bpm, 1);
+        session.phrases.insert(phrase.id, phrase.clone());
+        session.tracks[0].layers.push(Layer::new(phrase.id));
+
+        assert!(worker.command(ProjectCommand::ExportMix {
+            path: path.clone(),
+            session,
+            media,
+            solo: BTreeSet::new(),
+            length: ExportLength::OneCycle,
+        }));
+        match updates.recv_timeout(Duration::from_secs(5)).unwrap() {
+            ProjectUpdate::Exported { path: exported } => assert_eq!(exported, path),
+            _ => panic!("expected export result"),
+        }
+        assert!(path.is_file());
+        drop(worker);
     }
 }

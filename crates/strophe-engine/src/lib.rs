@@ -34,16 +34,21 @@
 
 pub mod capture;
 pub mod click;
+pub mod export;
+pub mod handoff;
 pub mod media;
 pub mod project_store;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use firewheel::core::node::NodeID;
+use firewheel::nodes::stream::ResamplingChannelConfig;
 use firewheel::{
+    FirewheelConfig, FirewheelContext,
     channel_config::{ChannelCount, NonZeroChannelCount},
     collector::ArcGc,
-    cpal::CpalConfig,
+    cpal::{CpalConfig, CpalEnumerator, CpalInputConfig, CpalOutputConfig},
     diff::Notify,
     dsp::volume::Volume,
     nodes::{
@@ -53,18 +58,52 @@ use firewheel::{
         volume::{VolumeNode, VolumeNodeConfig},
     },
     sample_resource::SampleResource,
-    FirewheelConfig, FirewheelContext,
 };
-use firewheel::core::node::NodeID;
-use firewheel::nodes::stream::ResamplingChannelConfig;
 use strophe_model::TrackId;
 
-use audio_primitives::{estimate_bpm, OnsetDetector};
+use audio_primitives::{OnsetDetector, estimate_bpm};
 
 // Re-export model types that appear in this crate's public API so
 // downstream consumers don't need a separate strophe-model dep just
 // to construct a LayerKey.
 pub use strophe_model::TrackId as ModelTrackId;
+
+/// A selectable native audio device. `id` is a CPAL-stable identifier for
+/// host-local settings; it is not project/session state.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AudioDevice {
+    pub id: String,
+    pub name: String,
+    pub is_default: bool,
+}
+
+/// Available devices for the current system default audio host.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AudioDevices {
+    pub inputs: Vec<AudioDevice>,
+    pub outputs: Vec<AudioDevice>,
+}
+
+/// Host-local device preference. `None` follows the system default.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AudioDeviceSelection {
+    pub input_id: Option<String>,
+    pub output_id: Option<String>,
+}
+
+/// Enumerate input and output devices from Firewheel's CPAL backend.
+pub fn available_audio_devices() -> AudioDevices {
+    let host = CpalEnumerator {}.default_host();
+    let map = |device: firewheel::cpal::DeviceInfo| AudioDevice {
+        id: device.id.to_string(),
+        name: device.name.unwrap_or_else(|| "unnamed device".to_string()),
+        is_default: device.is_default,
+    };
+    AudioDevices {
+        inputs: host.input_devices().into_iter().map(map).collect(),
+        outputs: host.output_devices().into_iter().map(map).collect(),
+    }
+}
 
 /// Soft cap on simultaneously playing layer voices. Each voice is a
 /// `SamplerNode` dynamically added to the graph on `play_layer` and
@@ -111,6 +150,7 @@ pub struct Engine {
     /// loop and the bar-aligned scheduling state.
     bpm: f32,
     beats_per_bar: u8,
+    beat_unit: u8,
     /// Map from layer key to the dynamically-added sampler node
     /// playing that layer. Nodes are added by `play_layer` and
     /// removed by `stop_layer`.
@@ -185,6 +225,7 @@ struct PendingLayer {
     last_in_bar_phase: usize,
     key: LayerKey,
     samples: Vec<f32>,
+    sample_rate: u32,
     gain: f32,
     looping: bool,
 }
@@ -193,17 +234,19 @@ impl Engine {
     /// Construct the engine. Opens default I/O devices, builds the
     /// FT3b.1 graph, and starts the click loop playing.
     pub fn new() -> Result<Self, EngineError> {
+        Self::new_with_audio_devices(&AudioDeviceSelection::default())
+    }
+
+    /// Construct the engine for a host-local input/output preference. Missing
+    /// or stale IDs intentionally fall back to the system default.
+    pub fn new_with_audio_devices(selection: &AudioDeviceSelection) -> Result<Self, EngineError> {
         let mut cx = FirewheelContext::new(FirewheelConfig {
-            num_graph_inputs: ChannelCount::new(1)
-                .expect("mono input channel count is valid"),
+            num_graph_inputs: ChannelCount::new(1).expect("mono input channel count is valid"),
             ..Default::default()
         });
 
-        cx.start_stream(CpalConfig {
-            output: Default::default(),
-            input: Some(Default::default()),
-        })
-        .map_err(|e| EngineError::CpalInit(format!("{e:?}")))?;
+        cx.start_stream(cpal_config(selection))
+            .map_err(|e| EngineError::CpalInit(format!("{e:?}")))?;
 
         let stream_info = cx
             .stream_info()
@@ -213,7 +256,7 @@ impl Engine {
 
         // --- Click sampler (fully populated at add_node time;
         //     `Notify<bool>::patch` rejects post-hoc Bool events) ---
-        let click_buf = click::render_click_loop(sample_rate, 120.0, 4);
+        let click_buf = click::render_click_loop(sample_rate, 120.0, 4, 4);
         let click_resource = make_mono_resource(click_buf);
         let click_node = SamplerNode {
             sample: Some(click_resource),
@@ -296,6 +339,7 @@ impl Engine {
             click_id,
             bpm: 120.0,
             beats_per_bar: 4,
+            beat_unit: 4,
             voice_nodes: BTreeMap::new(),
             pending_capture: PendingCapture::Idle,
             input_scratch: Vec::with_capacity(8192),
@@ -401,10 +445,15 @@ impl Engine {
     // --- Bar-phase math ---
 
     /// Samples in one bar at the engine's current BPM / time
-    /// signature. Pure function of `bpm`, `beats_per_bar`, and
+    /// signature. Pure function of `bpm`, `beats_per_bar`, `beat_unit`, and
     /// `sample_rate`.
     pub fn samples_per_bar(&self) -> usize {
-        (self.sample_rate as f64 * 60.0 / self.bpm as f64 * self.beats_per_bar as f64) as usize
+        click::frames_per_bar(
+            self.sample_rate,
+            self.bpm,
+            self.beats_per_bar,
+            self.beat_unit,
+        )
     }
 
     /// Click playhead position *within the current bar*, in samples.
@@ -452,9 +501,7 @@ impl Engine {
         count_in_bars: u8,
     ) -> Result<(), EngineError> {
         if !matches!(self.pending_capture, PendingCapture::Idle) {
-            return Err(EngineError::Graph(
-                "capture already in progress".into(),
-            ));
+            return Err(EngineError::Graph("capture already in progress".into()));
         }
         let last_in_bar_phase = self
             .click_in_bar_phase()
@@ -555,6 +602,18 @@ impl Engine {
         gain: f32,
         looping: bool,
     ) -> Result<(), EngineError> {
+        self.play_layer_at_next_bar_at_sample_rate(key, samples, self.sample_rate, gain, looping)
+    }
+
+    /// Queue a layer for the next bar, preserving its source sample rate.
+    pub fn play_layer_at_next_bar_at_sample_rate(
+        &mut self,
+        key: LayerKey,
+        samples: Vec<f32>,
+        sample_rate: u32,
+        gain: f32,
+        looping: bool,
+    ) -> Result<(), EngineError> {
         let last_in_bar_phase = self
             .click_in_bar_phase()
             .ok_or_else(|| EngineError::Graph("click bar-phase unavailable".into()))?;
@@ -563,6 +622,7 @@ impl Engine {
             last_in_bar_phase,
             key,
             samples,
+            sample_rate,
             gain,
             looping,
         });
@@ -607,11 +667,8 @@ impl Engine {
                 target_samples,
                 last_in_bar_phase,
             } => {
-                let crossed = Self::crossed_bar_boundary(
-                    last_in_bar_phase,
-                    cur_in_bar,
-                    bar_samples,
-                );
+                let crossed =
+                    Self::crossed_bar_boundary(last_in_bar_phase, cur_in_bar, bar_samples);
                 let bars_remaining = if crossed {
                     bars_until_start.saturating_sub(1)
                 } else {
@@ -711,7 +768,13 @@ impl Engine {
         }
         self.pending_layers = still_pending;
         for layer in ready {
-            let _ = self.play_layer(layer.key, layer.samples, layer.gain, layer.looping);
+            let _ = self.play_layer_at_sample_rate(
+                layer.key,
+                layer.samples,
+                layer.sample_rate,
+                layer.gain,
+                layer.looping,
+            );
         }
     }
 
@@ -742,6 +805,19 @@ impl Engine {
         gain: f32,
         looping: bool,
     ) -> Result<(), EngineError> {
+        self.play_layer_at_sample_rate(key, samples, self.sample_rate, gain, looping)
+    }
+
+    /// Start a layer at its source sample rate. Firewheel adjusts sampler speed
+    /// so captures keep their original pitch and duration across device changes.
+    pub fn play_layer_at_sample_rate(
+        &mut self,
+        key: LayerKey,
+        samples: Vec<f32>,
+        sample_rate: u32,
+        gain: f32,
+        looping: bool,
+    ) -> Result<(), EngineError> {
         // Restart? Remove the existing node first.
         if let Some(old_id) = self.voice_nodes.remove(&key) {
             let _ = self.cx.remove_node(old_id);
@@ -758,6 +834,7 @@ impl Engine {
         let node = SamplerNode {
             sample: Some(resource),
             volume: Volume::Linear(gain),
+            speed: playback_speed(sample_rate, self.sample_rate),
             repeat_mode,
             play: Notify::new(true),
             play_from: PlayFrom::BEGINNING,
@@ -800,7 +877,8 @@ impl Engine {
                 volume: Volume::Linear(gain),
                 ..SamplerNode::default()
             };
-            self.cx.queue_event_for(sampler_id, node.sync_volume_event());
+            self.cx
+                .queue_event_for(sampler_id, node.sync_volume_event());
         }
     }
 
@@ -808,8 +886,8 @@ impl Engine {
     /// into the graph. Post-hoc sample swaps on `SamplerNode` are
     /// unreliable, so this *rebuilds* the click node (remove + add) —
     /// the same add-on-demand pattern the voices use. The click playhead
-    /// restarts at bar 0, and the engine's bar-phase reference (`bpm` +
-    /// `beats_per_bar`, read by [`Self::samples_per_bar`]) updates to
+    /// restarts at bar 0, and the engine's bar-phase reference (the full tempo
+    /// and time signature, read by [`Self::samples_per_bar`]) updates to
     /// match, so capture/replay stay aligned to the new grid.
     ///
     /// Already-playing layers are fixed-length buffers captured at the
@@ -818,10 +896,16 @@ impl Engine {
     /// new click node starts at unity volume; callers that keep the
     /// master clock muted should re-apply [`Self::set_click_enabled`]
     /// afterwards.
-    pub fn set_tempo(&mut self, bpm: f32, beats_per_bar: u8) -> Result<(), EngineError> {
+    pub fn set_tempo(
+        &mut self,
+        bpm: f32,
+        beats_per_bar: u8,
+        beat_unit: u8,
+    ) -> Result<(), EngineError> {
         let bpm = bpm.max(1.0);
         let beats_per_bar = beats_per_bar.max(1);
-        let click_buf = click::render_click_loop(self.sample_rate, bpm, beats_per_bar);
+        let beat_unit = beat_unit.max(1);
+        let click_buf = click::render_click_loop(self.sample_rate, bpm, beats_per_bar, beat_unit);
         let resource = make_mono_resource(click_buf);
         let node = SamplerNode {
             sample: Some(resource),
@@ -841,6 +925,7 @@ impl Engine {
         self.click_id = new_id;
         self.bpm = bpm;
         self.beats_per_bar = beats_per_bar;
+        self.beat_unit = beat_unit;
         Ok(())
     }
 
@@ -886,6 +971,24 @@ impl Drop for Engine {
     fn drop(&mut self) {
         self.cx.stop_stream();
     }
+}
+
+fn cpal_config(selection: &AudioDeviceSelection) -> CpalConfig {
+    let parse_device_id = |id: Option<&String>| id.and_then(|id| id.parse().ok());
+    CpalConfig {
+        output: CpalOutputConfig {
+            device_id: parse_device_id(selection.output_id.as_ref()),
+            ..Default::default()
+        },
+        input: Some(CpalInputConfig {
+            device_id: parse_device_id(selection.input_id.as_ref()),
+            ..Default::default()
+        }),
+    }
+}
+
+fn playback_speed(source_sample_rate: u32, engine_sample_rate: u32) -> f64 {
+    source_sample_rate.max(1) as f64 / engine_sample_rate.max(1) as f64
 }
 
 /// Wrap a mono `Vec<f32>` into an `ArcGc<dyn SampleResource>` that the
@@ -946,3 +1049,24 @@ impl std::fmt::Display for EngineError {
 }
 
 impl std::error::Error for EngineError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn playback_speed_preserves_source_duration_across_device_rates() {
+        assert!((playback_speed(44_100, 48_000) - 0.918_75).abs() < f64::EPSILON);
+        assert!((playback_speed(48_000, 44_100) - 1.088_435_374).abs() < 1e-9);
+    }
+
+    #[test]
+    fn invalid_device_ids_fall_back_to_system_defaults() {
+        let config = cpal_config(&AudioDeviceSelection {
+            input_id: Some("not a CPAL device id".to_string()),
+            output_id: Some("also not a device id".to_string()),
+        });
+        assert!(config.output.device_id.is_none());
+        assert!(config.input.unwrap().device_id.is_none());
+    }
+}
