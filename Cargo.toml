@@ -65,8 +65,8 @@ winit = "0.30"
 # mirrors woodshed's serval section. GIT deps on the owned repos; local
 # checkouts ride the gitignored .cargo/config.toml source-specific [patch].
 # Build strophe-serval from the strophe cwd so that patch applies.
-xilem-serval = { git = "https://github.com/mark-ik/serval.git", branch = "main" }
-chisel = { git = "https://github.com/mark-ik/serval.git", branch = "main" }
+xilem-serval = { package = "serval-xilem", git = "https://github.com/mark-ik/serval.git", branch = "main" }
+chisel = { package = "serval-chisel", git = "https://github.com/mark-ik/serval.git", branch = "main" }
 layout-dom-api = { git = "https://github.com/mark-ik/serval.git", branch = "main" }
 serval-scripted-dom = { git = "https://github.com/mark-ik/serval.git", branch = "main" }
 serval-layout = { git = "https://github.com/mark-ik/serval.git", branch = "main" }
