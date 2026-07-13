@@ -12,6 +12,7 @@ description = "Strophe's serval desktop host: winit window + netrender present o
 accesskit = { workspace = true }
 strophe-model = { workspace = true }
 strophe-engine = { workspace = true }
+audio-primitives = { workspace = true }
 xilem-serval = { workspace = true }
 chisel = { workspace = true }
 layout-dom-api = { workspace = true }
@@ -25,6 +26,7 @@ wgpu = { workspace = true }
 winit = { workspace = true }
 muniment = { workspace = true, features = ["redb"] }
 armillary = { workspace = true }
+personae = { workspace = true }
 pollster = "0.4"
 rfd = "0.17.2"
 

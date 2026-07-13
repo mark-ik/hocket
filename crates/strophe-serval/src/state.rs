@@ -10,8 +10,10 @@
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
+use std::time::Instant;
 
 use armillary::ActorHandle;
+use audio_primitives::{MeterBallistics, PeakMeterSmoother, WaveformPeak};
 use strophe_engine::export::ExportLength;
 use strophe_engine::media::{InMemoryStore, MediaStore};
 use strophe_engine::{
@@ -22,10 +24,19 @@ use strophe_model::{
 };
 use xilem_serval::SelectState;
 
+use crate::identity::LocalIdentity;
 use crate::project_io::{ProjectCommand, ProjectUpdate};
 
 /// Meter dB floor for the 0..1 level the output meters display.
 const METER_FLOOR_DB: f32 = -60.0;
+
+fn normalize_meter_db(db: f32) -> f32 {
+    if !db.is_finite() || db <= METER_FLOOR_DB {
+        0.0
+    } else {
+        ((db - METER_FLOOR_DB) / -METER_FLOOR_DB).clamp(0.0, 1.0)
+    }
+}
 
 enum ProjectStatus {
     Idle,
@@ -53,6 +64,9 @@ pub struct AppState {
     playing: Vec<LayerKey>,
     /// Latest output peak, dB per channel, read back each tick.
     meter_db: [f32; 2],
+    /// Host-local display smoothing; timing is UI policy, not session state.
+    meter_display: [PeakMeterSmoother; 2],
+    last_meter_tick: Instant,
     /// Blobs referenced by an opened project but unavailable locally. Their
     /// layers remain in the model and stay silent until the blobs arrive.
     pub missing_media: BTreeSet<MediaRef>,
@@ -60,6 +74,8 @@ pub struct AppState {
     saved_head: strophe_model::NodeId,
     project_status: ProjectStatus,
     project_worker: ActorHandle<ProjectCommand>,
+    /// Durable host identity. Its secret and unlock state never enter a project.
+    identity: Result<LocalIdentity, String>,
     /// Host-local export intent. It changes only the rendered file, never the
     /// project graph or its syncable history.
     export_length: ExportLength,
@@ -82,13 +98,17 @@ pub struct AppState {
 
 impl AppState {
     /// A new, empty looper-pedal session. Captures append real playable layers.
-    pub fn new(project_worker: ActorHandle<ProjectCommand>) -> Self {
+    pub fn new(
+        project_worker: ActorHandle<ProjectCommand>,
+        identity: Result<LocalIdentity, String>,
+    ) -> Self {
         Self::from_project_parts(
             Session::new_default(),
             History::new(),
             InMemoryStore::new(),
             BTreeSet::new(),
             project_worker,
+            identity,
         )
     }
 
@@ -98,6 +118,7 @@ impl AppState {
         store: InMemoryStore,
         missing_media: BTreeSet<MediaRef>,
         project_worker: ActorHandle<ProjectCommand>,
+        identity: Result<LocalIdentity, String>,
     ) -> Self {
         let audio_devices = available_audio_devices();
         let (engine, sample_rate, audio_status) = match Engine::new() {
@@ -118,11 +139,14 @@ impl AppState {
             capturing_track: None,
             playing: Vec::new(),
             meter_db: [f32::NEG_INFINITY; 2],
+            meter_display: [PeakMeterSmoother::default(), PeakMeterSmoother::default()],
+            last_meter_tick: Instant::now(),
             missing_media,
             project_path: None,
             saved_head,
             project_status: ProjectStatus::Idle,
             project_worker,
+            identity,
             export_length: ExportLength::OneCycle,
             audio_devices,
             audio_input_select: SelectState::default(),
@@ -133,6 +157,7 @@ impl AppState {
             click: true,
             solo: BTreeSet::new(),
         };
+        state.set_meter_ballistics(MeterBallistics::default());
         // Apply the initial click + tempo to the engine.
         state.resync_tempo();
         state
@@ -170,6 +195,13 @@ impl AppState {
                     "new session".to_string()
                 }
             }
+        }
+    }
+
+    pub fn identity_status_label(&self) -> String {
+        match &self.identity {
+            Ok(identity) => format!("local session · {}", identity.fingerprint()),
+            Err(_) => "local session · identity unavailable".to_string(),
         }
     }
 
@@ -349,17 +381,114 @@ impl AppState {
     /// The output meter level `0..1` for channel `ch` (0 = L, 1 = R), mapped
     /// from the read-back dB against the display floor.
     pub fn meter_level(&self, ch: usize) -> f32 {
-        let db = self.meter_db.get(ch).copied().unwrap_or(f32::NEG_INFINITY);
-        if db <= METER_FLOOR_DB {
-            0.0
-        } else {
-            ((db - METER_FLOOR_DB) / -METER_FLOOR_DB).clamp(0.0, 1.0)
-        }
+        self.meter_display
+            .get(ch)
+            .map(|meter| meter.reading().level)
+            .unwrap_or(0.0)
+    }
+
+    pub fn meter_peak_level(&self, ch: usize) -> f32 {
+        self.meter_display
+            .get(ch)
+            .map(|meter| meter.reading().peak)
+            .unwrap_or(0.0)
     }
 
     /// Latest output level in dB, for the textual peak readout.
     pub fn meter_db(&self, ch: usize) -> f32 {
         self.meter_db.get(ch).copied().unwrap_or(f32::NEG_INFINITY)
+    }
+
+    /// Host-local meter timing. A settings surface can replace this without
+    /// mutating project or collaboration state.
+    pub fn set_meter_ballistics(&mut self, ballistics: MeterBallistics) {
+        for meter in &mut self.meter_display {
+            meter.set_ballistics(ballistics);
+        }
+    }
+
+    pub(crate) fn render_track_waveform(
+        &self,
+        track_index: usize,
+        columns: usize,
+    ) -> Option<Vec<WaveformPeak>> {
+        strophe_engine::waveform::render_track_peaks(
+            &self.session,
+            &self.store,
+            track_index,
+            columns,
+        )
+        .ok()
+    }
+
+    pub(crate) fn render_layer_waveform(
+        &self,
+        track_index: usize,
+        layer_index: usize,
+        columns: usize,
+    ) -> Option<Vec<WaveformPeak>> {
+        strophe_engine::waveform::render_layer_peaks(
+            &self.session,
+            &self.store,
+            track_index,
+            layer_index,
+            columns,
+        )
+        .ok()
+    }
+
+    pub fn layer_waveform_available(&self, track_index: usize, layer_index: usize) -> bool {
+        self.session
+            .tracks
+            .get(track_index)
+            .and_then(|track| track.layers.get(layer_index))
+            .and_then(|layer| self.session.phrases.get(&layer.phrase_id))
+            .and_then(|phrase| self.store.get(&phrase.media))
+            .is_some_and(|buffer| !buffer.samples.is_empty())
+    }
+
+    pub fn track_has_audible_layers(&self, track_index: usize) -> bool {
+        self.session.tracks.get(track_index).is_some_and(|track| {
+            track.layers.iter().enumerate().any(|(index, layer)| {
+                track
+                    .playback_mode
+                    .is_layer_audible(index as u16, layer.muted)
+            })
+        })
+    }
+
+    pub fn track_waveform_available(&self, track_index: usize) -> bool {
+        let Some(track) = self.session.tracks.get(track_index) else {
+            return false;
+        };
+        let mut sample_rate = None;
+        let mut found = false;
+        for (index, layer) in track.layers.iter().enumerate() {
+            if !track
+                .playback_mode
+                .is_layer_audible(index as u16, layer.muted)
+            {
+                continue;
+            }
+            let Some(buffer) = self
+                .session
+                .phrases
+                .get(&layer.phrase_id)
+                .and_then(|phrase| self.store.get(&phrase.media))
+            else {
+                return false;
+            };
+            if buffer.samples.is_empty() {
+                return false;
+            }
+            match sample_rate {
+                Some(expected) if expected != buffer.sample_rate => return false,
+                None => sample_rate = Some(buffer.sample_rate),
+                _ => {}
+            }
+            found = true;
+        }
+        found
     }
 
     pub fn input_device_options(&self) -> Vec<String> {
@@ -379,6 +508,12 @@ impl AppState {
     /// Advance the engine, read back the meter + capture phase, and promote a
     /// completed capture into a model layer + looping playback.
     pub fn tick(&mut self) {
+        let now = Instant::now();
+        let meter_delta = now
+            .duration_since(self.last_meter_tick)
+            .as_secs_f32()
+            .clamp(0.0, 0.25);
+        self.last_meter_tick = now;
         self.apply_audio_device_selection();
         let (meter, phase, captured) = match &mut self.engine {
             Ok(engine) => {
@@ -389,9 +524,12 @@ impl AppState {
                     engine.take_bar_aligned_capture(),
                 )
             }
-            Err(_) => (self.meter_db, self.capture_phase.clone(), None),
+            Err(_) => ([f32::NEG_INFINITY; 2], self.capture_phase.clone(), None),
         };
         self.meter_db = meter;
+        for (channel, smoother) in self.meter_display.iter_mut().enumerate() {
+            smoother.update(normalize_meter_db(meter[channel]), meter_delta);
+        }
         self.capture_phase = phase;
 
         if let Some(samples) = captured {
@@ -819,5 +957,13 @@ mod tests {
         );
         assert_eq!(selected_device_id(&devices, 0), None);
         assert_eq!(selected_device_id(&devices, 1).as_deref(), Some("input-1"));
+    }
+
+    #[test]
+    fn meter_db_normalization_has_an_explicit_floor() {
+        assert_eq!(normalize_meter_db(f32::NEG_INFINITY), 0.0);
+        assert_eq!(normalize_meter_db(-60.0), 0.0);
+        assert!((normalize_meter_db(-30.0) - 0.5).abs() < f32::EPSILON);
+        assert_eq!(normalize_meter_db(0.0), 1.0);
     }
 }

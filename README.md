@@ -18,13 +18,25 @@ creation. Native Open and Save controls queue project work off the UI thread,
 then persist or reopen a Redb-backed bundle through Muniment. New sessions begin
 empty.
 
+Summed and per-layer Chisel waveforms now project real stored samples through a
+content-addressed cache, and unavailable media is labeled instead of replaced by
+a generated silhouette. Output meters use configurable shared attack, release,
+peak-hold, and peak-decay ballistics.
+
 Not built yet: peer hand-off and synchronization.
 The pass-the-mic UI is deliberately local until those pieces exist.
 
-The engine now has a signed, recipient-bound hand-off envelope for a complete
-project snapshot and its media, plus a transactional same-root branch-acceptance
-rule. It is transport-neutral groundwork only: the desktop host cannot send,
-receive, review, or accept one yet.
+The engine now has a signed, recipient-addressed hand-off envelope for a
+complete project snapshot and its media, plus a transactional same-root
+branch-acceptance rule. Envelope v2 identifies the durable sender that
+authorized its session key. It is transport-neutral groundwork only: the
+desktop host cannot send, receive, review, or accept one yet, and raw envelope
+bytes are not encrypted.
+
+On Windows, the desktop host now restores one durable local identity from a
+`personae` sealed record protected by DPAPI and shows its short public
+fingerprint in the circle. The identity remains outside project files. Other
+platforms report identity unavailable until their OS unlock backend exists.
 
 History now retains divergent branches and can integrate a same-root remote
 graph without replacing local work. It does not yet reconcile conflicting edits

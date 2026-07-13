@@ -107,12 +107,18 @@ tokio = { version = "1.50", features = ["rt", "rt-multi-thread", "time", "sync"]
 # needs (patches are per-workspace-root, not inherited through git deps —
 # woodshed carries the same mirror). Keep in sync with serval's fork pins.
 [patch.crates-io]
-# stylo_taffy names crates.io stylo/stylo_atoms ^0.18; serval pins the same
-# crates from the mark-ik/stylo fork (mark-ik/servo-media-features branch),
-# and stylo declares links = "servo_style_crate" (one Stylo per graph), so
-# mirror serval's patch to unify.
-stylo = { git = "https://github.com/mark-ik/stylo", branch = "mark-ik/servo-media-features" }
-stylo_atoms = { git = "https://github.com/mark-ik/stylo", branch = "mark-ik/servo-media-features" }
+# NO stylo/stylo_atoms patch (removed 2026-07-12, mirroring serval): the fork
+# is now the RENAMED `serval-stylo` family, and a `[patch]` cannot rename its
+# target. Serval's crates git-dep serval-stylo by package rename instead, so no
+# crates.io `stylo` remains in the graph to patch. Keeping the old patch
+# reintroduced the pre-rename fork beside serval-stylo, and
+# `links = "servo_style_crate"` (one Stylo per graph) made that a hard error.
+#
+# stylo_taffy MUST be patched for the same reason: the registry copy names
+# crates.io stylo, which would pull a second Stylo into the graph. Serval
+# vendors a stylo_taffy that git-deps serval-stylo instead; redirect to it.
+# See serval's docs/2026-07-12_ring3_fork_rename_publish_plan.md.
+stylo_taffy = { git = "https://github.com/mark-ik/serval.git", branch = "main" }
 # serval's vendored forks (taffy float-layout, in-process ipc-channel).
 taffy = { git = "https://github.com/mark-ik/serval.git", branch = "main" }
 ipc-channel = { git = "https://github.com/mark-ik/serval.git", branch = "main" }

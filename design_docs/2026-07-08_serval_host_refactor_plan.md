@@ -235,10 +235,8 @@ either the Masonry `strophe` (until S6) or `strophe-serval` runnable.
     (the fork's last consumers) + drop the fork deps. woodshed builds serval-only.
   Verified: `grep -ri masonry` clean (bar historical comments) and both
   workspaces build in one serval/wgpu-29 tree. **The plan's goal is met.**
-  Deferred to a spin-out: real per-layer peak data into the waveform leaves
-  (lift `compute_peaks` — it went with `strophe-widgets`), the Deeler
-  combination + settings surfaces, responsive waveform width, idle-tick
-  throttling, and cross-platform validation (iMac / Fedora / Mint).
+  Deferred to a spin-out: the Deeler combination + settings surfaces,
+  idle-tick throttling, and cross-platform validation (iMac / Fedora / Mint).
 - 2026-07-08: **Audio engine wired — strophe-serval makes sound (parity with the
   Masonry app's core function).** `state.rs`'s `AppState` now owns a live
   `strophe_engine::Engine` + `InMemoryStore`, mirroring the Masonry app's glue:
@@ -277,8 +275,16 @@ either the Masonry `strophe` (until S6) or `strophe-serval` runnable.
   take (Guitar 3→4 layers) re-seeded its envelope (repaint-on-content-change);
   the meters render. **strophe is the second real chisel consumer** (after
   meerkat's grid/arrangement), exercising the leaf on-screen path end to end.
-  Follow-ups: fixed 280px width (responsive-fill later); real peak data lands
-  with the engine slice; per-layer rows could become leaves if wanted.
+  These waveform follow-ups landed 2026-07-11; see the newer progress entry.
+- 2026-07-11: **Real responsive waveforms + meter ballistics landed.** Shared
+  `audio-primitives` now extracts signed min/max columns and advances
+  configurable meter attack/release/peak hold. `strophe-engine::waveform`
+  projects real stored layers and summed track mixes through the same source
+  selection/repeating-loop semantics as export. The Serval host caches by
+  content identity/signature, uses stable track/phrase-derived leaf keys,
+  renders summed and per-layer responsive Chisel leaves, labels missing media,
+  releases stale leaves, and feeds held peaks to Chisel meters. The old
+  deterministic silhouettes and per-layer CSS bars are retired.
 - 2026-07-08: **S2 done — the UI runs on the real model.** `state.rs` introduces
   `AppState`: a `strophe_model::Session` + its `History`; every data-bearing
   gesture commits a real `Edit` (`ArmTrack`, `AppendLayer`, `SetLayerMute`,

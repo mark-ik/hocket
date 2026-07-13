@@ -6,12 +6,12 @@
 //! shows the local performer only; peers arrive with the sync layer. Waveform
 //! and meter drawing use host-owned chisel leaves.
 
-use strophe_model::{PlaybackMode, Track, TrackColor};
+use strophe_model::{PhraseId, PlaybackMode, TrackColor, TrackId};
 use xilem_serval::{
     AnyView, SelectState, ServalCtx, ServalElement, clickable, el, lens, select, text,
 };
 
-use crate::leaves::{METER_L, METER_R, wave_key};
+use crate::leaves::{METER_L, METER_R, layer_wave_key, wave_key};
 use crate::state::AppState;
 
 pub type Child = Box<dyn AnyView<AppState, (), ServalCtx, ServalElement>>;
@@ -25,48 +25,28 @@ fn chisel_leaf(key: u64, w: u32, h: u32) -> Child {
     ))
 }
 
-/// The summed-loop waveform leaf for track `i`.
-fn wave_leaf(i: usize) -> Child {
-    chisel_leaf(wave_key(i), 280, 40)
+fn responsive_chisel_leaf(key: u64, height: u32) -> Child {
+    Box::new(
+        el("chisel-leaf", ())
+            .attr("key", key.to_string())
+            .attr("aria-hidden", "true")
+            .attr(
+                "style",
+                format!("display: block; width: 100%; height: {height}px"),
+            ),
+    )
+}
+
+fn wave_leaf(track: TrackId) -> Child {
+    responsive_chisel_leaf(wave_key(track), 40)
+}
+
+fn layer_wave_leaf(track: TrackId, phrase: PhraseId) -> Child {
+    responsive_chisel_leaf(layer_wave_key(track, phrase), 11)
 }
 
 fn hex(c: TrackColor) -> String {
     format!("#{:02x}{:02x}{:02x}", c.r, c.g, c.b)
-}
-
-/// Deterministic waveform heights in `0..1` — a musical-phrase envelope
-/// times a stable pseudo-random, so the stand-in reads like audio. Seeded
-/// per layer from its phrase id, so a layer keeps its shape across frames.
-fn heights(seed: u32, n: usize) -> Vec<f32> {
-    let mut s = seed.wrapping_mul(2_654_435_761).wrapping_add(1);
-    let mut out = Vec::with_capacity(n);
-    for i in 0..n {
-        s = s.wrapping_mul(1_103_515_245).wrapping_add(12_345);
-        let r = ((s >> 16) & 0x7fff) as f32 / 32_767.0;
-        let t = i as f32 / n as f32;
-        let env = 0.35 + 0.65 * (std::f32::consts::PI * t).sin().powf(0.6);
-        out.push((0.25 + r * 0.75) * env);
-    }
-    out
-}
-
-fn bars(seed: u32, n: usize) -> Vec<Child> {
-    heights(seed, n)
-        .iter()
-        .map(|h| {
-            Box::new(
-                el("div", ())
-                    .attr("class", "bar")
-                    .attr("style", format!("height: {}%", (h * 100.0).max(6.0) as u32)),
-            ) as Child
-        })
-        .collect()
-}
-
-/// A stable per-layer seed from the phrase id's leading bytes.
-fn layer_seed(track: &Track, layer_index: usize) -> u32 {
-    let b = track.layers[layer_index].phrase_id.0.as_bytes();
-    u32::from_le_bytes([b[0], b[1], b[2], b[3]])
 }
 
 pub fn root(state: &AppState) -> Child {
@@ -212,7 +192,7 @@ fn rail(state: &AppState) -> Child {
     };
     let amber = "#e0a64b";
     let session_note = if state.missing_media.is_empty() {
-        "local session".to_string()
+        state.identity_status_label()
     } else {
         format!("{} media blob(s) unavailable", state.missing_media.len())
     };
@@ -319,13 +299,21 @@ fn lane(state: &AppState, i: usize) -> Child {
             .rev()
             .map(|li| {
                 let muted = track.layers[li].muted;
+                let phrase_id = track.layers[li].phrase_id;
                 let cls = if muted { "layer layer-muted" } else { "layer" };
+                let waveform: Child = if state.layer_waveform_available(i, li) {
+                    layer_wave_leaf(track.id, phrase_id)
+                } else {
+                    Box::new(
+                        el("span", text("media unavailable")).attr("class", "wave-unavailable"),
+                    )
+                };
                 Box::new(clickable(
                     el(
                         "div",
                         (
                             el("span", text(format!("L{}", li + 1))).attr("class", "lnum mono"),
-                            el("div", bars(layer_seed(track, li), 26)).attr("class", "layer-wave"),
+                            el("div", waveform).attr("class", "layer-wave"),
                         ),
                     )
                     .attr("class", cls)
@@ -338,16 +326,25 @@ fn lane(state: &AppState, i: usize) -> Child {
                 )) as Child
             })
             .collect();
+        let summary: Child = if state.track_waveform_available(i) {
+            wave_leaf(track.id)
+        } else {
+            Box::new(
+                el(
+                    "span",
+                    text(if state.track_has_audible_layers(i) {
+                        "media unavailable"
+                    } else {
+                        "all layers muted"
+                    }),
+                )
+                .attr("class", "wave-unavailable"),
+            )
+        };
         Box::new(
             el(
                 "div",
-                (
-                    // The summed loop is a chisel Path-A leaf (host-owned, keyed
-                    // by track); its filled envelope re-seeds when the audible
-                    // stack changes. See `leaves::reconcile`.
-                    wave_leaf(i),
-                    el("div", layer_rows).attr("class", "layers"),
-                ),
+                (summary, el("div", layer_rows).attr("class", "layers")),
             )
             .attr("class", "lane-wave"),
         )

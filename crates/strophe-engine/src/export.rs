@@ -31,6 +31,8 @@ pub enum ExportLength {
 #[derive(Debug)]
 pub enum ExportError {
     NoAudibleLayers,
+    MissingTrack(usize),
+    MissingLayer { track: usize, layer: usize },
     MissingPhrase(PhraseId),
     MissingMedia(MediaRef),
     EmptyMedia(MediaRef),
@@ -46,6 +48,10 @@ impl std::fmt::Display for ExportError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NoAudibleLayers => f.write_str("there are no audible layers to export"),
+            Self::MissingTrack(index) => write!(f, "track index {index} does not exist"),
+            Self::MissingLayer { track, layer } => {
+                write!(f, "layer index {layer} does not exist on track {track}")
+            }
             Self::MissingPhrase(id) => write!(f, "layer references missing phrase {id}"),
             Self::MissingMedia(reference) => write!(f, "media {reference} is unavailable"),
             Self::EmptyMedia(reference) => write!(f, "media {reference} has no samples"),
@@ -166,10 +172,10 @@ pub fn write_stereo_wav(path: impl AsRef<Path>, mix: &RenderedMix) -> Result<(),
     Ok(())
 }
 
-struct Source<'a> {
-    samples: &'a [f32],
-    gain: f32,
-    sample_rate: u32,
+pub(crate) struct Source<'a> {
+    pub(crate) samples: &'a [f32],
+    pub(crate) gain: f32,
+    pub(crate) sample_rate: u32,
 }
 
 fn collect_audible_sources<'a>(
@@ -178,38 +184,61 @@ fn collect_audible_sources<'a>(
     solo: &BTreeSet<TrackId>,
 ) -> Result<Vec<Source<'a>>, ExportError> {
     let mut sources = Vec::new();
-    for track in &session.tracks {
+    for (track_index, track) in session.tracks.iter().enumerate() {
         if track.muted || (!solo.is_empty() && !solo.contains(&track.id)) {
             continue;
         }
-        for (index, layer) in track.layers.iter().enumerate() {
-            if !track
-                .playback_mode
-                .is_layer_audible(index as u16, layer.muted)
-            {
-                continue;
-            }
-            let phrase = session
-                .phrases
-                .get(&layer.phrase_id)
-                .ok_or(ExportError::MissingPhrase(layer.phrase_id))?;
-            let buffer = media
-                .get(&phrase.media)
-                .ok_or(ExportError::MissingMedia(phrase.media))?;
-            if buffer.samples.is_empty() {
-                return Err(ExportError::EmptyMedia(phrase.media));
-            }
-            sources.push(Source {
-                samples: &buffer.samples,
-                gain: layer.gain,
-                sample_rate: buffer.sample_rate,
-            });
-        }
+        sources.extend(collect_track_sources(session, media, track_index)?);
     }
     if sources.is_empty() {
         return Err(ExportError::NoAudibleLayers);
     }
-    let sample_rate = sources[0].sample_rate;
+    validate_source_sample_rates(&sources)?;
+    Ok(sources)
+}
+
+pub(crate) fn collect_track_sources<'a>(
+    session: &'a Session,
+    media: &'a impl MediaStore,
+    track_index: usize,
+) -> Result<Vec<Source<'a>>, ExportError> {
+    let track = session
+        .tracks
+        .get(track_index)
+        .ok_or(ExportError::MissingTrack(track_index))?;
+    let mut sources = Vec::new();
+    for (index, layer) in track.layers.iter().enumerate() {
+        if !track
+            .playback_mode
+            .is_layer_audible(index as u16, layer.muted)
+        {
+            continue;
+        }
+        let phrase = session
+            .phrases
+            .get(&layer.phrase_id)
+            .ok_or(ExportError::MissingPhrase(layer.phrase_id))?;
+        let buffer = media
+            .get(&phrase.media)
+            .ok_or(ExportError::MissingMedia(phrase.media))?;
+        if buffer.samples.is_empty() {
+            return Err(ExportError::EmptyMedia(phrase.media));
+        }
+        sources.push(Source {
+            samples: &buffer.samples,
+            gain: layer.gain,
+            sample_rate: buffer.sample_rate,
+        });
+    }
+    validate_source_sample_rates(&sources)?;
+    Ok(sources)
+}
+
+pub(crate) fn validate_source_sample_rates(sources: &[Source<'_>]) -> Result<(), ExportError> {
+    let Some(first) = sources.first() else {
+        return Ok(());
+    };
+    let sample_rate = first.sample_rate;
     for source in &sources[1..] {
         if source.sample_rate != sample_rate {
             return Err(ExportError::SampleRateMismatch {
@@ -218,10 +247,10 @@ fn collect_audible_sources<'a>(
             });
         }
     }
-    Ok(sources)
+    Ok(())
 }
 
-fn render_sources_for_frames(
+pub(crate) fn render_sources_for_frames(
     sources: Vec<Source<'_>>,
     frames: usize,
 ) -> Result<RenderedMix, ExportError> {

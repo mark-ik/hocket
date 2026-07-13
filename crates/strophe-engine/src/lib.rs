@@ -38,6 +38,7 @@ pub mod export;
 pub mod handoff;
 pub mod media;
 pub mod project_store;
+pub mod waveform;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;

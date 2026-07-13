@@ -104,9 +104,8 @@ pub fn sheet() -> String {
 .layer-muted { opacity: 0.34; }
 .wave-empty { color: var(--text-faint); font-size: 12px; align-self: center; }
 
-/* waveform stand-in: a row of owner-coloured bars (chisel leaf at S5) */
 .layer-wave { display: flex; align-items: center; flex-grow: 1; height: 11px; }
-.bar { width: 3px; margin-right: 2px; border-radius: 1px; background-color: var(--voice); }
+.wave-unavailable { color: var(--text-faint); font-size: 10px; align-self: center; }
 
 .lane-ctl { display: flex; align-items: center; }
 .lctl { width: 30px; height: 30px; border-radius: 8px; background-color: var(--raised);

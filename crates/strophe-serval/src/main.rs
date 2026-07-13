@@ -7,6 +7,7 @@
 //! layer + theme live in [`view`] / [`theme`]; [`state`] holds the real
 //! `strophe_model::Session` + `History` the views derive from (S2).
 
+mod identity;
 mod leaves;
 mod project_io;
 mod state;
@@ -34,9 +35,10 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 use xilem_serval::{PointerClick, Propagation, ServalAppRunner};
 
-use state::AppState;
+use identity::LocalIdentity;
 use project_io::{ProjectCommand, ProjectUpdate, spawn_project_worker};
-use view::{root, Child};
+use state::AppState;
+use view::{Child, root};
 
 type Runner = ServalAppRunner<AppState, fn(&AppState) -> Child, Child>;
 
@@ -63,6 +65,7 @@ struct App {
     /// their rendered Path-A command cache. Reconciled from `AppState` each
     /// frame; the retention gate keeps an unchanged leaf from repainting.
     leaves: chisel::LeafRegistry<u64>,
+    waveform_cache: leaves::WaveformCache,
     rendered: chisel::RenderedLeaves,
     /// OS accessibility bridge: the same laid-out DOM the frame renders is
     /// projected to an AccessKit tree and pushed here, so a screen reader reads
@@ -130,9 +133,11 @@ impl App {
 
     fn redraw(&mut self) {
         self.pump_a11y_actions();
-        let (Some(window), Some(host), Some(runner)) =
-            (self.window.as_ref(), self.host.as_ref(), self.runner.as_ref())
-        else {
+        let (Some(window), Some(host), Some(runner)) = (
+            self.window.as_ref(),
+            self.host.as_ref(),
+            self.runner.as_ref(),
+        ) else {
             return;
         };
         let size = window.inner_size();
@@ -166,7 +171,7 @@ impl App {
             // Chisel leaves: reconcile from the session, size each leaf from the
             // laid-out `<chisel-leaf>` boxes, render the dirty ones, and splice
             // their Path-A commands at their boxes.
-            leaves::reconcile(&mut self.leaves, runner.state());
+            leaves::reconcile(&mut self.leaves, &mut self.waveform_cache, runner.state());
             let boxes = layout.chisel_leaf_boxes();
             let size_map: std::collections::HashMap<u64, chisel::Size> = boxes
                 .iter()
@@ -305,10 +310,15 @@ impl ApplicationHandler<HostEvent> for App {
                         // Top-anchored + short enough to clear the taskbar on a
                         // 720-logical laptop screen.
                         .with_position(winit::dpi::LogicalPosition::new(40.0, 8.0))
-                        .with_inner_size(winit::dpi::LogicalSize::new(1180.0, 700.0)),
+                        .with_inner_size(winit::dpi::LogicalSize::new(1180.0, 700.0))
+                        .with_visible(false),
                 )
                 .expect("create window"),
         );
+        // Keep the native window hidden while the initial AccessKit tree and
+        // its native adapter are installed below.
+        let wake_window = window.clone();
+        let mut a11y = AccessKitBridge::new(move || wake_window.request_redraw());
         let size = window.inner_size();
         let host = SurfaceHost::boot(
             window.clone(),
@@ -322,16 +332,64 @@ impl ApplicationHandler<HostEvent> for App {
         )
         .expect("boot serval host");
         let dom = Rc::new(RefCell::new(ScriptedDom::new()));
-        let worker = self.project_worker.take().expect("project worker initialized");
-        let runner = Runner::new(dom, root as fn(&AppState) -> Child, AppState::new(worker));
-        // AccessKit bridge: a screen-reader action wakes the loop so the next
-        // frame drains and routes it. Installed lazily on the first frame with a
-        // laid-out tree (see `redraw`).
-        let wake_window = window.clone();
-        self.a11y = Some(AccessKitBridge::new(move || wake_window.request_redraw()));
+        let worker = self
+            .project_worker
+            .take()
+            .expect("project worker initialized");
+        let identity = LocalIdentity::open_default().map_err(|error| error.to_string());
+        let runner = Runner::new(
+            dom,
+            root as fn(&AppState) -> Child,
+            AppState::new(worker, identity),
+        );
+
+        // Bootstrap the adapter from the real initial view before Windows sees
+        // the native window. Hidden windows do not reliably receive redraws, so
+        // deferring installation to the first frame creates a startup cycle.
+        leaves::reconcile(&mut self.leaves, &mut self.waveform_cache, runner.state());
+        let scale = window.scale_factor() as f32;
+        let (lw, lh) = (size.width as f32 / scale, size.height as f32 / scale);
+        let (layout, tree, actionable) = {
+            let dom = runner.dom();
+            let dom_ref = dom.borrow();
+            let sheets = [self.sheet.as_str()];
+            let layout = IncrementalLayout::new(&*dom_ref, &sheets, lw, lh);
+            let (nodes, root_id, actionable) = serval_layout::build_subtree_with_leaves(
+                &*dom_ref,
+                layout.fragments(),
+                dom_ref.document(),
+                &|d: &ScriptedDom, n: NodeId| AccessNodeId(d.opaque_id(n)),
+                &|_d: &ScriptedDom, _n: NodeId| false,
+                &mut leaves::LeafA11y(&mut self.leaves),
+            );
+            let tree = TreeUpdate {
+                nodes,
+                tree: Some(Tree::new(root_id)),
+                tree_id: TreeId::ROOT,
+                focus: root_id,
+            };
+            (layout, tree, actionable)
+        };
+        self.a11y_route = {
+            let dom = runner.dom();
+            let dom_ref = dom.borrow();
+            actionable
+                .into_iter()
+                .map(|node| (AccessNodeId(dom_ref.opaque_id(node)), node))
+                .collect()
+        };
+        a11y.install(&window, tree)
+            .expect("install initial accessibility tree");
+        self.layout = Some(layout);
+        self.layout_size = (lw, lh);
+        self.a11y = Some(a11y);
         self.window = Some(window);
         self.host = Some(host);
         self.runner = Some(runner);
+        self.window
+            .as_ref()
+            .expect("window just installed")
+            .set_visible(true);
         // Kick off the engine-tick timer.
         event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + TICK));
     }
@@ -403,6 +461,7 @@ fn main() {
         sheet: theme::sheet(),
         cursor: (0.0, 0.0),
         leaves: chisel::LeafRegistry::new(),
+        waveform_cache: leaves::WaveformCache::new(),
         rendered: chisel::RenderedLeaves::new(),
         a11y: None,
         a11y_route: HashMap::new(),

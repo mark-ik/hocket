@@ -41,11 +41,17 @@ before any other doc in this directory.
   - **LANDED.** Per-launch local input/output selection over Firewheel CPAL,
   separate from project persistence and sync.
 - [2026-07-10_signed-handoff-envelope_plan.md](2026-07-10_signed-handoff-envelope_plan.md)
-  - **PARTIAL.** Signed, complete, recipient-bound project hand-off bytes;
-  carrier, review, acceptance, and branch merge remain separate work.
+  - **PARTIAL.** Signed, complete, recipient-addressed project hand-off bytes
+  with durable-sender attestation; raw bytes are not encrypted.
+  durable Windows host identity and engine branch acceptance are landed.
+  Recipient exchange, carrier, review UI, user-facing acceptance, and branch
+  merge remain separate work.
 - [2026-07-10_history-branches_plan.md](2026-07-10_history-branches_plan.md)
   - **LANDED.** Retained history branches, cross-branch checkout, and validated
   same-root graph integration; conflicting-edit reconciliation remains open.
+- [2026-07-11_real_waveforms_meter_ballistics_plan.md](2026-07-11_real_waveforms_meter_ballistics_plan.md)
+  - **LANDED.** Real cached summed/per-layer waveform projections through
+  responsive Chisel leaves, plus shared configurable meter ballistics.
 
 ## Archive
 

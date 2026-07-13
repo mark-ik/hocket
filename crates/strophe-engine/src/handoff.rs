@@ -1,10 +1,11 @@
 //! Signed, transport-neutral Strophe session hand-off.
 //!
 //! A hand-off is a complete immutable snapshot: project manifest plus every
-//! referenced media buffer. The envelope binds that snapshot to a recipient and
-//! is signed by a session-scoped key derived through `personae`. Murm, Iroh, a
-//! file attachment, or an eventual invite flow can carry its postcard bytes
-//! without changing the application protocol.
+//! referenced media buffer. The envelope addresses that snapshot to a recipient
+//! and is signed by a session-scoped key derived through `personae`. The durable
+//! sender identity attests that derived key. Murm, Iroh, a file attachment, or
+//! an eventual invite flow can carry its postcard bytes without changing the
+//! application protocol; confidentiality remains the carrier's responsibility.
 //!
 //! This module deliberately does not merge edits. `strophe-model::History`
 //! retains and integrates divergent branches, but it does not yet synthesize a
@@ -12,7 +13,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use personae::{Ed25519PublicKey, Ed25519Signature, IdentityProvider};
+use personae::{DerivedKeyAttestation, Ed25519PublicKey, Ed25519Signature, IdentityProvider};
 use serde::{Deserialize, Serialize};
 use strophe_model::{MediaRef, ProjectBundle, SessionId};
 
@@ -21,6 +22,8 @@ use crate::media::{InMemoryStore, MediaBuffer, MediaStore, hash_buffer};
 /// A complete received hand-off, ready for a host to stage for review.
 #[derive(Clone, Debug)]
 pub struct ReceivedHandoff {
+    /// Durable identity that authorized the session-scoped signing key.
+    pub sender: Ed25519PublicKey,
     pub bundle: ProjectBundle,
     pub media: InMemoryStore,
 }
@@ -34,13 +37,13 @@ pub struct BranchAcceptance {
     pub imported_media: usize,
 }
 
-/// Versioned recipient-bound session transfer.
+/// Versioned recipient-addressed session transfer.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct HandoffEnvelope {
     pub format_version: u16,
     pub session_id: SessionId,
-    /// Session-scoped public signing key, not the sender's master key.
-    pub sender: [u8; 32],
+    /// Master-certified session-scoped signing key.
+    pub sender: DerivedKeyAttestation,
     /// Intended recipient's public key.
     pub recipient: [u8; 32],
     payload: HandoffPayload,
@@ -57,7 +60,7 @@ struct HandoffPayload {
 struct UnsignedHandoff<'a> {
     format_version: u16,
     session_id: SessionId,
-    sender: [u8; 32],
+    sender: &'a DerivedKeyAttestation,
     recipient: [u8; 32],
     payload: &'a HandoffPayload,
 }
@@ -70,6 +73,7 @@ pub enum HandoffError {
     UnsupportedVersion(u16),
     RecipientMismatch,
     InvalidSender,
+    InvalidSenderAttestation,
     InvalidSignature,
     SessionMismatch,
     SnapshotMismatch,
@@ -92,6 +96,9 @@ impl std::fmt::Display for HandoffError {
             }
             Self::RecipientMismatch => f.write_str("handoff is addressed to another recipient"),
             Self::InvalidSender => f.write_str("handoff sender key is invalid"),
+            Self::InvalidSenderAttestation => {
+                f.write_str("handoff sender key is not authorized by its durable identity")
+            }
             Self::InvalidSignature => f.write_str("handoff signature does not verify"),
             Self::SessionMismatch => f.write_str("handoff belongs to another session"),
             Self::SnapshotMismatch => {
@@ -132,7 +139,7 @@ impl From<strophe_model::HistoryError> for HandoffError {
 }
 
 impl HandoffEnvelope {
-    pub const FORMAT_VERSION: u16 = 1;
+    pub const FORMAT_VERSION: u16 = 2;
 
     /// Build a signed complete snapshot for `recipient`.
     pub fn create(
@@ -168,13 +175,17 @@ impl HandoffEnvelope {
             bundle: bundle.clone(),
             media: handoff_media,
         };
-        let signer = identity.derive_keypair(&handoff_salt(bundle.session.id))?;
-        let sender = signer.public_key().to_bytes();
+        let salt = handoff_salt(bundle.session.id);
+        let signer = identity.derive_keypair(&salt)?;
+        let sender = identity.attest_derived_key(&salt)?;
+        if sender.derived_public_key()? != signer.public_key() {
+            return Err(HandoffError::InvalidSenderAttestation);
+        }
         let recipient = recipient.to_bytes();
         let unsigned = UnsignedHandoff {
             format_version: Self::FORMAT_VERSION,
             session_id: bundle.session.id,
-            sender,
+            sender: &sender,
             recipient,
             payload: &payload,
         };
@@ -204,17 +215,32 @@ impl HandoffEnvelope {
         Ok(envelope)
     }
 
-    /// Authenticate the envelope and materialize its complete project snapshot.
-    pub fn receive(self, recipient: Ed25519PublicKey) -> Result<ReceivedHandoff, HandoffError> {
-        if self.recipient != recipient.to_bytes() {
+    /// Authenticate the envelope, check its address, and materialize its
+    /// complete project snapshot. Address matching is not proof of private-key
+    /// possession; the carrier supplies access control and confidentiality.
+    pub fn receive(
+        self,
+        expected_recipient: Ed25519PublicKey,
+    ) -> Result<ReceivedHandoff, HandoffError> {
+        if self.recipient != expected_recipient.to_bytes() {
             return Err(HandoffError::RecipientMismatch);
         }
-        let sender =
-            Ed25519PublicKey::from_bytes(&self.sender).map_err(|_| HandoffError::InvalidSender)?;
+        let salt = handoff_salt(self.session_id);
+        if !self.sender.verify(&salt) {
+            return Err(HandoffError::InvalidSenderAttestation);
+        }
+        let sender = self
+            .sender
+            .derived_public_key()
+            .map_err(|_| HandoffError::InvalidSender)?;
+        let sender_identity = self
+            .sender
+            .master_public_key()
+            .map_err(|_| HandoffError::InvalidSender)?;
         let unsigned = UnsignedHandoff {
             format_version: self.format_version,
             session_id: self.session_id,
-            sender: self.sender,
+            sender: &self.sender,
             recipient: self.recipient,
             payload: &self.payload,
         };
@@ -253,6 +279,7 @@ impl HandoffEnvelope {
             }
         }
         Ok(ReceivedHandoff {
+            sender: sender_identity,
             bundle: self.payload.bundle,
             media,
         })
@@ -313,7 +340,7 @@ impl ReceivedHandoff {
 }
 
 fn handoff_salt(session_id: SessionId) -> Vec<u8> {
-    let mut salt = b"strophe/handoff/v1/".to_vec();
+    let mut salt = b"strophe/handoff/v2/".to_vec();
     salt.extend_from_slice(session_id.0.as_bytes());
     salt
 }
@@ -368,6 +395,7 @@ mod tests {
             .unwrap();
         assert_eq!(received.bundle, bundle);
         assert_eq!(received.media.len(), 1);
+        assert_eq!(received.sender, sender.master_public_key());
     }
 
     #[test]
@@ -389,6 +417,15 @@ mod tests {
         assert!(matches!(
             tampered.receive(recipient.master_public_key()),
             Err(HandoffError::InvalidSignature)
+        ));
+
+        let mut wrong_session =
+            HandoffEnvelope::create(&bundle, &store, recipient.master_public_key(), &sender)
+                .unwrap();
+        wrong_session.session_id = SessionId::new();
+        assert!(matches!(
+            wrong_session.receive(recipient.master_public_key()),
+            Err(HandoffError::InvalidSenderAttestation)
         ));
     }
 

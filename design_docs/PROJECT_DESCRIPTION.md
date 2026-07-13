@@ -133,7 +133,8 @@ who want exactly that workflow (like myself).
 ## Tech Stack
 
 - **Language**: Rust
-- **UI**: Xilem + Masonry, painted with Vello
+- **UI**: `xilem_serval` hosted on Serval, with Chisel retained vector leaves
+  for waveform and meter geometry
 - **Audio engine**: [Firewheel](https://github.com/BillyDM/Firewheel)
   (BillyDM's modular audio graph engine, "wgpu but for audio"). Native
   + WASM backends. On crates.io as `firewheel-graph` 0.10.x.
@@ -157,10 +158,10 @@ the Merely family. Hard audio engineering happens in Strophe first;
 when pieces stabilize, they get extracted to shared crates that
 Woodshed and Mere consume independently. Planned shape:
 
-- `audio-primitives` — metering, RMS/peak ballistics, onset / tap
-  tempo, latency calibration, peak-file LOD, WAV/export helpers
-- `audio-widgets` — fader, knob, meter, transport button, waveform
-  widget, mini routing graph
+- `audio-primitives` — waveform peaks, meter ballistics, onset / tap tempo,
+  latency calibration, and other pure sample/timing kernels
+- audio Chisel leaves — incubate in Strophe and promote only when Woodshed or
+  another consumer needs the same retained geometry
 - `audio-devices` — curated Firewheel node wrappers (gain/EQ/reverb/
   delay/compressor) + parameter schemas
 

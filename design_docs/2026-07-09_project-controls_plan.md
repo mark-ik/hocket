@@ -31,3 +31,8 @@ Serval kernel or the audio engine.
   Armillary worker round-trips a Redb project without blocking the host kernel.
   The header reflects the project path, save state, and unsaved history edits.
   Native-dialog visual smoke testing remains manual.
+- 2026-07-11: Armillary now exposes `RequestId`/`RequestIds` and
+  `Correlated<T>`, proven by Isometry's authority actor. The next project-worker
+  touch should stamp Save/Open/Export commands and return that ID on every
+  result, replacing the current action-string-only failure correlation. This is
+  an adoption note, not a claim that Strophe has migrated yet.
