@@ -115,10 +115,10 @@ tokio = { version = "1.50", features = ["rt", "rt-multi-thread", "time", "sync"]
 # `links = "servo_style_crate"` (one Stylo per graph) made that a hard error.
 #
 # stylo_taffy MUST be patched for the same reason: the registry copy names
-# crates.io stylo, which would pull a second Stylo into the graph. Genet
-# vendors a stylo_taffy that git-deps genet-stylo instead; redirect to it.
-# See genet's docs/2026-07-12_ring3_fork_rename_publish_plan.md.
-stylo_taffy = { git = "https://github.com/mark-ik/genet.git", branch = "main" }
+# crates.io stylo, which would pull a second Stylo into the graph. The sibling
+# paths keep Cargo from treating Genet's large workspace as a crates.io patch
+# source, while its vendored adapter consumes the published genet-stylo family.
+stylo_taffy = { path = "../genet/support/patches/stylo_taffy" }
 # genet's vendored forks (taffy float-layout, in-process ipc-channel).
-taffy = { git = "https://github.com/mark-ik/genet.git", branch = "main" }
-ipc-channel = { git = "https://github.com/mark-ik/genet.git", branch = "main" }
+taffy = { path = "../genet/support/patches/taffy" }
+ipc-channel = { path = "../genet/support/patches/ipc-channel" }
