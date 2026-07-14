@@ -172,7 +172,7 @@ impl App {
             // laid-out `<chisel-leaf>` boxes, render the dirty ones, and splice
             // their Path-A commands at their boxes.
             leaves::reconcile(&mut self.leaves, &mut self.waveform_cache, runner.state());
-            let boxes = layout.chisel_leaf_boxes();
+            let boxes = layout.custom_leaf_boxes();
             let size_map: std::collections::HashMap<u64, sprigging::Size> = boxes
                 .iter()
                 .map(|(k, (w, h))| {
