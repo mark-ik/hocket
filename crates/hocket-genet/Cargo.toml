@@ -1,5 +1,5 @@
 [package]
-name = "strophe-genet"
+name = "hocket-genet"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
@@ -10,8 +10,8 @@ description = "Strophe's genet desktop host: winit window + netrender present ov
 [dependencies]
 # AccessKit tree/action types for the a11y bridge (genet_winit_host::AccessKitBridge).
 accesskit = { workspace = true }
-strophe-model = { workspace = true }
-strophe-engine = { workspace = true }
+hocket-model = { workspace = true }
+hocket-engine = { workspace = true }
 audio-primitives = { workspace = true }
 cambium = { workspace = true }
 sprigging = { workspace = true }

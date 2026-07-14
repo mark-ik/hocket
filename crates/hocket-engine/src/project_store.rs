@@ -8,7 +8,7 @@
 use std::collections::BTreeSet;
 
 use muniment::{Backend, StoreError, WriteOp};
-use strophe_model::{MediaRef, PersistenceError, ProjectBundle};
+use hocket_model::{MediaRef, PersistenceError, ProjectBundle};
 
 use crate::media::{InMemoryStore, MediaBuffer, MediaStore, hash_buffer};
 
@@ -279,7 +279,7 @@ fn decode_media(reference: MediaRef, bytes: &[u8]) -> Result<MediaBuffer, Projec
 mod tests {
     use muniment::{Backend, MemoryBackend};
     use pollster::block_on;
-    use strophe_model::{Edit, History, Layer, Phrase, Session};
+    use hocket_model::{Edit, History, Layer, Phrase, Session};
 
     use super::*;
 

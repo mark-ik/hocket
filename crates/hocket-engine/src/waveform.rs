@@ -1,7 +1,7 @@
 //! Real waveform overviews projected from Strophe session and media state.
 
 use audio_primitives::{WaveformPeak, min_max_peaks};
-use strophe_model::Session;
+use hocket_model::Session;
 
 use crate::export::{ExportError, collect_track_sources, render_sources_for_frames};
 use crate::media::MediaStore;
@@ -71,7 +71,7 @@ pub fn render_layer_peaks(
 
 #[cfg(test)]
 mod tests {
-    use strophe_model::{Layer, Phrase, PlaybackMode, Session};
+    use hocket_model::{Layer, Phrase, PlaybackMode, Session};
 
     use super::*;
     use crate::media::{InMemoryStore, MediaStore};

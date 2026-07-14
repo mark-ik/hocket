@@ -1595,7 +1595,7 @@ checksum = "66b7e2430c6dff6a955451e2cfc438f09cea1965a9d6f87f7e3b90decc014099"
 
 [[package]]
 name = "engine-observables-api"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "genet-paint-types",
  "malloc_size_of_derive",
@@ -2578,6 +2578,66 @@ name = "hexf-parse"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
+
+[[package]]
+name = "hocket-engine"
+version = "0.1.0"
+dependencies = [
+ "audio-primitives",
+ "blake3",
+ "firewheel",
+ "hocket-model",
+ "hound",
+ "muniment",
+ "personae",
+ "pollster",
+ "postcard",
+ "serde",
+ "tempfile",
+]
+
+[[package]]
+name = "hocket-genet"
+version = "0.1.0"
+dependencies = [
+ "accesskit",
+ "armillary",
+ "audio-primitives",
+ "cambium",
+ "genet-layout",
+ "genet-scripted-dom",
+ "genet-winit-host",
+ "hocket-engine",
+ "hocket-model",
+ "layout-dom-api",
+ "muniment",
+ "netrender",
+ "paint_list_api",
+ "paint_list_render",
+ "personae",
+ "pollster",
+ "rfd",
+ "sprigging",
+ "tempfile",
+ "wgpu",
+ "winit",
+]
+
+[[package]]
+name = "hocket-headless"
+version = "0.1.0"
+dependencies = [
+ "hocket-engine",
+]
+
+[[package]]
+name = "hocket-model"
+version = "0.1.0"
+dependencies = [
+ "postcard",
+ "serde",
+ "uuid",
+]
 
 [[package]]
 name = "hound"
@@ -5264,66 +5324,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "strophe-engine"
-version = "0.1.0"
-dependencies = [
- "audio-primitives",
- "blake3",
- "firewheel",
- "hound",
- "muniment",
- "personae",
- "pollster",
- "postcard",
- "serde",
- "strophe-model",
- "tempfile",
-]
-
-[[package]]
-name = "strophe-genet"
-version = "0.1.0"
-dependencies = [
- "accesskit",
- "armillary",
- "audio-primitives",
- "cambium",
- "genet-layout",
- "genet-scripted-dom",
- "genet-winit-host",
- "layout-dom-api",
- "muniment",
- "netrender",
- "paint_list_api",
- "paint_list_render",
- "personae",
- "pollster",
- "rfd",
- "sprigging",
- "strophe-engine",
- "strophe-model",
- "tempfile",
- "wgpu",
- "winit",
-]
-
-[[package]]
-name = "strophe-headless"
-version = "0.1.0"
-dependencies = [
- "strophe-engine",
-]
-
-[[package]]
-name = "strophe-model"
-version = "0.1.0"
-dependencies = [
- "postcard",
- "serde",
- "uuid",
-]
-
-[[package]]
 name = "strum"
 version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7314,4 +7314,4 @@ dependencies = [
 
 [[patch.unused]]
 name = "tinct"
-version = "0.1.1"
+version = "0.1.2"

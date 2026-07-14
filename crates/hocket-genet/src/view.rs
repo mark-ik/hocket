@@ -6,7 +6,7 @@
 //! shows the local performer only; peers arrive with the sync layer. Waveform
 //! and meter drawing use host-owned chisel leaves.
 
-use strophe_model::{PhraseId, PlaybackMode, TrackColor, TrackId};
+use hocket_model::{PhraseId, PlaybackMode, TrackColor, TrackId};
 use cambium::{
     AnyView, SelectState, GenetCtx, GenetElement, clickable, el, lens, select, text,
 };

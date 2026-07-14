@@ -60,14 +60,14 @@ use firewheel::{
     },
     sample_resource::SampleResource,
 };
-use strophe_model::TrackId;
+use hocket_model::TrackId;
 
 use audio_primitives::{OnsetDetector, estimate_bpm};
 
 // Re-export model types that appear in this crate's public API so
 // downstream consumers don't need a separate strophe-model dep just
 // to construct a LayerKey.
-pub use strophe_model::TrackId as ModelTrackId;
+pub use hocket_model::TrackId as ModelTrackId;
 
 /// A selectable native audio device. `id` is a CPAL-stable identifier for
 /// host-local settings; it is not project/session state.

@@ -1,5 +1,5 @@
 [package]
-name = "strophe-headless"
+name = "hocket-headless"
 version = "0.1.0"
 description = "Headless audio-engine test harness for Strophe — scripted demos without the UI."
 edition.workspace = true
@@ -11,8 +11,8 @@ readme = "../../README.md"
 publish = false
 
 [[bin]]
-name = "strophe-headless"
+name = "hocket-headless"
 path = "src/main.rs"
 
 [dependencies]
-strophe-engine = { workspace = true }
+hocket-engine = { workspace = true }

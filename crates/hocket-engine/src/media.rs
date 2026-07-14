@@ -11,7 +11,7 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
-use strophe_model::MediaRef;
+use hocket_model::MediaRef;
 
 /// A media buffer: mono `f32` samples plus the rate they were captured
 /// at. (Multi-channel support is deferred until the engine grows past

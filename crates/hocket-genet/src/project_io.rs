@@ -10,10 +10,10 @@ use std::sync::mpsc::Receiver;
 use armillary::{ActorHandle, Emitter, Wake, spawn};
 use muniment::RedbBackend;
 use std::collections::BTreeSet;
-use strophe_engine::export::{ExportLength, render_mix, write_stereo_wav};
-use strophe_engine::media::InMemoryStore;
-use strophe_engine::project_store::{LoadedProject, ProjectStore};
-use strophe_model::{NodeId, ProjectBundle, Session, TrackId};
+use hocket_engine::export::{ExportLength, render_mix, write_stereo_wav};
+use hocket_engine::media::InMemoryStore;
+use hocket_engine::project_store::{LoadedProject, ProjectStore};
+use hocket_model::{NodeId, ProjectBundle, Session, TrackId};
 
 pub enum ProjectCommand {
     Save {
@@ -121,8 +121,8 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use strophe_engine::media::MediaStore;
-    use strophe_model::{History, Layer, Phrase, Session};
+    use hocket_engine::media::MediaStore;
+    use hocket_model::{History, Layer, Phrase, Session};
 
     #[test]
     fn worker_saves_then_opens_a_project() {

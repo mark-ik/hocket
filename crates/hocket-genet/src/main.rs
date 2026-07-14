@@ -5,7 +5,7 @@
 //! out, the paint list lowers to a `netrender::Scene`, and
 //! `genet-winit-host`'s `SurfaceHost` rasterizes and composites. The view
 //! layer + theme live in [`view`] / [`theme`]; [`state`] holds the real
-//! `strophe_model::Session` + `History` the views derive from (S2).
+//! `hocket_model::Session` + `History` the views derive from (S2).
 
 mod identity;
 mod leaves;

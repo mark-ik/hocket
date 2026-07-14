@@ -18,7 +18,7 @@
 use std::thread;
 use std::time::{Duration, Instant};
 
-use strophe_engine::{CapturePhase, Engine, LayerKey, ModelTrackId};
+use hocket_engine::{CapturePhase, Engine, LayerKey, ModelTrackId};
 
 const TICK_INTERVAL: Duration = Duration::from_millis(15);
 const METER_PRINT_INTERVAL: Duration = Duration::from_millis(250);

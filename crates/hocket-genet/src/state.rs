@@ -1,5 +1,5 @@
-//! The app state behind the genet UI: the real `strophe_model::Session` +
-//! `History`, plus the audio `strophe_engine::Engine` and its content store.
+//! The app state behind the genet UI: the real `hocket_model::Session` +
+//! `History`, plus the audio `hocket_engine::Engine` and its content store.
 //!
 //! Every data-bearing gesture commits a real `Edit`, so undo/redo + the future
 //! sync layer see exactly what the UI did; the engine-driving methods mirror the
@@ -14,12 +14,12 @@ use std::time::Instant;
 
 use armillary::ActorHandle;
 use audio_primitives::{MeterBallistics, PeakMeterSmoother, WaveformPeak};
-use strophe_engine::export::ExportLength;
-use strophe_engine::media::{InMemoryStore, MediaStore};
-use strophe_engine::{
+use hocket_engine::export::ExportLength;
+use hocket_engine::media::{InMemoryStore, MediaStore};
+use hocket_engine::{
     AudioDeviceSelection, AudioDevices, CapturePhase, Engine, LayerKey, available_audio_devices,
 };
-use strophe_model::{
+use hocket_model::{
     Edit, History, Layer, MediaRef, Phrase, ProjectBundle, Session, Track, TrackColor, TrackId,
 };
 use cambium::SelectState;
@@ -71,7 +71,7 @@ pub struct AppState {
     /// layers remain in the model and stay silent until the blobs arrive.
     pub missing_media: BTreeSet<MediaRef>,
     project_path: Option<PathBuf>,
-    saved_head: strophe_model::NodeId,
+    saved_head: hocket_model::NodeId,
     project_status: ProjectStatus,
     project_worker: ActorHandle<ProjectCommand>,
     /// Durable host identity. Its secret and unlock state never enter a project.
@@ -412,7 +412,7 @@ impl AppState {
         track_index: usize,
         columns: usize,
     ) -> Option<Vec<WaveformPeak>> {
-        strophe_engine::waveform::render_track_peaks(
+        hocket_engine::waveform::render_track_peaks(
             &self.session,
             &self.store,
             track_index,
@@ -427,7 +427,7 @@ impl AppState {
         layer_index: usize,
         columns: usize,
     ) -> Option<Vec<WaveformPeak>> {
-        strophe_engine::waveform::render_layer_peaks(
+        hocket_engine::waveform::render_layer_peaks(
             &self.session,
             &self.store,
             track_index,
@@ -922,7 +922,7 @@ fn ensure_extension(mut path: PathBuf, extension: &str) -> PathBuf {
     path
 }
 
-fn audio_device_options(devices: &[strophe_engine::AudioDevice]) -> Vec<String> {
+fn audio_device_options(devices: &[hocket_engine::AudioDevice]) -> Vec<String> {
     std::iter::once("System default".to_string())
         .chain(devices.iter().map(|device| {
             if device.is_default {
@@ -934,7 +934,7 @@ fn audio_device_options(devices: &[strophe_engine::AudioDevice]) -> Vec<String> 
         .collect()
 }
 
-fn selected_device_id(devices: &[strophe_engine::AudioDevice], selected: usize) -> Option<String> {
+fn selected_device_id(devices: &[hocket_engine::AudioDevice], selected: usize) -> Option<String> {
     devices
         .get(selected.checked_sub(1)?)
         .map(|device| device.id.clone())
@@ -946,7 +946,7 @@ mod tests {
 
     #[test]
     fn device_options_reserve_zero_for_the_system_default() {
-        let devices = vec![strophe_engine::AudioDevice {
+        let devices = vec![hocket_engine::AudioDevice {
             id: "input-1".to_string(),
             name: "Studio input".to_string(),
             is_default: true,

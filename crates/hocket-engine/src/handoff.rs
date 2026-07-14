@@ -15,7 +15,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use personae::{DerivedKeyAttestation, Ed25519PublicKey, Ed25519Signature, IdentityProvider};
 use serde::{Deserialize, Serialize};
-use strophe_model::{MediaRef, ProjectBundle, SessionId};
+use hocket_model::{MediaRef, ProjectBundle, SessionId};
 
 use crate::media::{InMemoryStore, MediaBuffer, MediaStore, hash_buffer};
 
@@ -33,7 +33,7 @@ pub struct ReceivedHandoff {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BranchAcceptance {
     pub integrated_nodes: usize,
-    pub accepted_head: strophe_model::NodeId,
+    pub accepted_head: hocket_model::NodeId,
     pub imported_media: usize,
 }
 
@@ -77,7 +77,7 @@ pub enum HandoffError {
     InvalidSignature,
     SessionMismatch,
     SnapshotMismatch,
-    History(strophe_model::HistoryError),
+    History(hocket_model::HistoryError),
     MissingMedia(BTreeSet<MediaRef>),
     MediaHashMismatch {
         expected: MediaRef,
@@ -132,8 +132,8 @@ impl From<personae::IdentityError> for HandoffError {
     }
 }
 
-impl From<strophe_model::HistoryError> for HandoffError {
-    fn from(error: strophe_model::HistoryError) -> Self {
+impl From<hocket_model::HistoryError> for HandoffError {
+    fn from(error: hocket_model::HistoryError) -> Self {
         Self::History(error)
     }
 }
@@ -357,7 +357,7 @@ fn referenced_media(bundle: &ProjectBundle) -> BTreeSet<MediaRef> {
 #[cfg(test)]
 mod tests {
     use personae::{IdentityProvider, InMemoryProvider};
-    use strophe_model::{Edit, History, Layer, Phrase, Session};
+    use hocket_model::{Edit, History, Layer, Phrase, Session};
 
     use super::*;
 

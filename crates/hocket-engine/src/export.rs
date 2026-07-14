@@ -8,7 +8,7 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use strophe_model::{MediaRef, PhraseId, Session, TrackId};
+use hocket_model::{MediaRef, PhraseId, Session, TrackId};
 
 use crate::media::MediaStore;
 
@@ -275,7 +275,7 @@ pub(crate) fn render_sources_for_frames(
 mod tests {
     use super::*;
     use crate::media::InMemoryStore;
-    use strophe_model::{Edit, History, Layer, Phrase, Session};
+    use hocket_model::{Edit, History, Layer, Phrase, Session};
 
     fn append_layer(
         session: &mut Session,
@@ -396,7 +396,7 @@ mod tests {
     fn bar_duration_repeats_unequal_free_loops_with_session_meter() {
         let mut session = Session::new_default();
         session.bpm = 120.0;
-        session.time_signature = strophe_model::TimeSignature::new(3, 8);
+        session.time_signature = hocket_model::TimeSignature::new(3, 8);
         let mut history = History::new();
         let mut store = InMemoryStore::new();
         append_layer(

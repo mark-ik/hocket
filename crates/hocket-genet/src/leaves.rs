@@ -16,7 +16,7 @@ use audio_primitives::WaveformPeak;
 use sprigging::{ColorF, Leaf, LeafRegistry, PaintCx, Path, RenderedLeaves, Size, SizeHint};
 use paint_list_api::PaintCmd;
 use genet_layout::LeafPaintSource;
-use strophe_model::{MediaRef, PhraseId, TrackColor, TrackId};
+use hocket_model::{MediaRef, PhraseId, TrackColor, TrackId};
 
 use crate::state::AppState;
 
@@ -205,11 +205,11 @@ impl WaveformCache {
 /// A signature of a track's audible content: its unmuted layers' phrase ids.
 /// Moves when a layer is added, muted, or unmuted — which is exactly when the
 /// summed envelope should re-seed.
-fn track_sig(track: &strophe_model::Track, state: &AppState) -> u64 {
+fn track_sig(track: &hocket_model::Track, state: &AppState) -> u64 {
     let mut signature = hash_ids(&[track.id.0.as_bytes()]);
     signature = match track.playback_mode {
-        strophe_model::PlaybackMode::Sum => signature ^ 0x51,
-        strophe_model::PlaybackMode::SelectOne { active } => {
+        hocket_model::PlaybackMode::Sum => signature ^ 0x51,
+        hocket_model::PlaybackMode::SelectOne { active } => {
             signature ^ 0xa7 ^ u64::from(active.unwrap_or(u16::MAX))
         }
     };

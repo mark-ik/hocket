@@ -7,7 +7,7 @@
 
 use std::time::Instant;
 
-use strophe_model::{
+use hocket_model::{
     Edit, History, Layer, MediaRef, NodeId, Phrase, Session,
 };
 

@@ -1,35 +1,35 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/strophe-engine",
-    "crates/strophe-model",
-    "crates/strophe-headless",
+    "crates/hocket-engine",
+    "crates/hocket-model",
+    "crates/hocket-headless",
     # The genet-host UI (2026-07-08 refactor). At the parity cut the Masonry
     # `strophe` bin + `strophe-widgets` were deleted; this is the only UI now.
-    "crates/strophe-genet",
+    "crates/hocket-genet",
 ]
 
 [workspace.package]
 edition = "2024"
 license = "MIT OR Apache-2.0"
 authors = ["Mark <sgt.mark3@gmail.com>"]
-repository = "https://github.com/mark-ik/strophe"
+repository = "https://github.com/mark-ik/hocket"
 rust-version = "1.96"
 
 [workspace.dependencies]
 # AccessKit tree/action types for the genet host's a11y bridge (must track
 # genet's accesskit pin so `TreeUpdate` unifies across genet-winit-host).
 accesskit = "0.24"
-# Internal crates. The `strophe` (app) and `strophe-headless` (audio
+# Internal crates. The `hocket` (app) and `hocket-headless` (audio
 # test harness) binaries are workspace members but not dependency
 # targets, so they don't appear here.
-strophe-engine = { path = "crates/strophe-engine", version = "0.1.0" }
-strophe-model = { path = "crates/strophe-model", version = "0.1.0" }
+hocket-engine = { path = "crates/hocket-engine", version = "0.1.0" }
+hocket-model = { path = "crates/hocket-model", version = "0.1.0" }
 
 # Shared pure-DSP primitives — the `audio-primitives` extraction (click
 # synth, streaming onset/tempo, latency estimation). Lives in the
 # woodshed repo (seeded from its mature DSP); consumed cross-repo by
-# path-dep. strophe-engine's click loop calls the shared click synth;
+# path-dep. hocket-engine's click loop calls the shared click synth;
 # the onset/tempo + latency cores are here for FT3c (calibration) and
 # bar-alignment work. Pure std, no engine/UI coupling.
 audio-primitives = { path = "../woodshed/crates/audio-primitives", version = "0.1.0" }
@@ -42,7 +42,7 @@ armillary = { path = "../armillary", version = "0.1.0" }
 # host-agnostic protocol dependency, not project/session state.
 personae = { path = "../personae", version = "0.1.0" }
 
-# Firewheel: modular audio graph engine, the spine of strophe-engine
+# Firewheel: modular audio graph engine, the spine of hocket-engine
 # (FT3b-prime). cpal feature enables the default native backend; the
 # symphonium feature gives sample-loading helpers we'll want at FT8.
 firewheel = { version = "0.10", features = [
@@ -64,7 +64,7 @@ winit = "0.30"
 # UI — Genet host (2026-07-08 genet-host refactor). The new UI stack;
 # mirrors Woodshed's Genet section. Git deps on the owned repos; local
 # checkouts ride the gitignored .cargo/config.toml source-specific [patch].
-# Build strophe-genet from the strophe cwd so that patch applies.
+# Build hocket-genet from the hocket cwd so that patch applies.
 cambium = { git = "https://github.com/mark-ik/cambium.git", branch = "main" }
 sprigging = { git = "https://github.com/mark-ik/cambium.git", branch = "main" }
 layout-dom-api = { git = "https://github.com/mark-ik/genet.git", branch = "main" }

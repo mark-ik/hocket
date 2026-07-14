@@ -1,5 +1,5 @@
 [package]
-name = "strophe-engine"
+name = "hocket-engine"
 version = "0.1.0"
 description = "Audio engine for Strophe: transport, click track, loop scheduling, capture."
 edition.workspace = true
@@ -10,7 +10,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-strophe-model = { workspace = true }
+hocket-model = { workspace = true }
 # Shared pure-DSP primitives (click synth now; onset/tempo + latency
 # cores available for FT3c calibration + bar-alignment work).
 audio-primitives = { workspace = true }
