@@ -65,10 +65,10 @@ winit = "0.30"
 # mirrors Woodshed's Genet section. Git deps on the owned repos; local
 # checkouts ride the gitignored .cargo/config.toml source-specific [patch].
 # Build hocket-genet from the hocket cwd so that patch applies.
-cambium = { git = "https://github.com/mark-ik/cambium.git", branch = "main" }
-sprigging = { git = "https://github.com/mark-ik/cambium.git", branch = "main" }
-layout-dom-api = { git = "https://github.com/mark-ik/genet.git", branch = "main" }
-genet-scripted-dom = { git = "https://github.com/mark-ik/genet.git", branch = "main" }
+cambium = "0.2.0"
+sprigging = "0.1.0"
+layout-dom-api = { git = "https://github.com/mark-ik/genet.git", branch = "main", version = "=0.1.0" }
+genet-scripted-dom = { git = "https://github.com/mark-ik/genet.git", branch = "main", version = "=0.1.0" }
 genet-layout = { git = "https://github.com/mark-ik/genet.git", branch = "main" }
 genet-winit-host = { git = "https://github.com/mark-ik/genet.git", branch = "main" }
 netrender = { git = "https://github.com/mark-ik/netrender.git", branch = "main" }
@@ -107,6 +107,8 @@ tokio = { version = "1.50", features = ["rt", "rt-multi-thread", "time", "sync"]
 # needs (patches are per-workspace-root, not inherited through git deps —
 # woodshed carries the same mirror). Keep in sync with genet's fork pins.
 [patch.crates-io]
+layout-dom-api = { git = "https://github.com/mark-ik/genet.git", branch = "main", version = "=0.1.0" }
+genet-scripted-dom = { git = "https://github.com/mark-ik/genet.git", branch = "main", version = "=0.1.0" }
 # NO stylo/stylo_atoms patch (removed 2026-07-12, mirroring genet): the fork
 # is now the RENAMED `genet-stylo` family, and a `[patch]` cannot rename its
 # target. Genet's crates git-dep genet-stylo by package rename instead, so no
