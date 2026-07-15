@@ -15,8 +15,10 @@ Pre-alpha. The Genet desktop host, framework-independent session model, and
 Firewheel audio engine are working together for local record, playback, track
 mute, solo, tempo, click, master-clock capture, and history-backed track
 creation. Native Open and Save controls queue project work off the UI thread,
-then persist or reopen a Redb-backed bundle through Muniment. New sessions begin
-empty.
+then persist or reopen a project through Muniment. A saved `.hock` file is an
+ordinary zip archive: a `manifest.cbor` plus one `media/<hash>.wav` per captured
+phrase, so it opens in any zip tool and its audio imports anywhere, without
+Hocket. New sessions begin empty.
 
 Summed and per-layer Chisel waveforms now project real stored samples through a
 content-addressed cache, and unavailable media is labeled instead of replaced by

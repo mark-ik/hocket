@@ -24,7 +24,7 @@ paint_list_api = { workspace = true }
 paint_list_render = { workspace = true }
 wgpu = { workspace = true }
 winit = { workspace = true }
-muniment = { workspace = true, features = ["redb"] }
+muniment = { workspace = true, features = ["zip"] }
 armillary = { workspace = true }
 personae = { workspace = true }
 # Opaque round-trip of the sealed identity record when re-sealing it under the

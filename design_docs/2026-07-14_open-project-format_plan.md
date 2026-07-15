@@ -22,56 +22,54 @@ Two obligations follow:
 This is a stated product value, not just an implementation preference. Surface
 it into `PROJECT_DESCRIPTION.md` when the maintainer wants it at goal level.
 
-## Where we are now (the starting point this plan moves away from)
+## Realized shape (LANDED 2026-07-14)
 
-A `.hock` file is currently a single [redb](../crates/hocket-engine/src/project_store.rs)
-database written through Muniment's backend seam:
-
-- One manifest key (`hocket/manifest`) holding the postcard-serialized
-  `ProjectBundle` (session + history).
-- Media blobs under `hocket/media/<blake3-hex>`, each a hand-rolled binary
-  frame (`HOCKMED\0` magic + version + sample rate + count + raw f32 PCM).
-
-Every part of that is opaque to the outside world: redb is a Rust-specific
-embedded KV store, and the media is uncompressed f32 PCM in a private framing,
-not even WAV. Nothing but Hocket can read a `.hock` file today. That is
-acceptable for pre-alpha local durability, but it is exactly the state this
-doctrine says we must not ship long-term.
-
-## Target shape (leading candidate)
-
-The genre-standard answer to "own extension, open guts" is a **zip archive with
-a custom extension** — the pattern behind Renoise `.xrns`, `.docx`, `.odt`,
-`.epub`, and Scratch `.sb3`. Applied here:
+A `.hock` file **is** a zip archive — the genre-standard answer (Renoise `.xrns`,
+`.docx`, `.odt`, `.epub`, Scratch `.sb3`) — with these entries:
 
 ```text
 mysession.hock            (a zip)
-  manifest.cbor           session + history, CBOR (already the FT8 target)
-  media/<blake3>.wav      or .flac; ordinary audio files, content-addressed
-  meta.json               format version, app version, human-readable
+  manifest.cbor           session + history, CBOR
+  media/<blake3-hex>.wav  one mono 32-bit-float WAV per phrase, content-addressed
 ```
 
-Benefits: the OS still associates `.hock` with Hocket; any tool can unzip and
-inspect; media travels as importable audio; nothing depends on a Rust KV store;
-and export becomes "copy the media out" rather than a converter.
+The OS still associates `.hock` with Hocket, but any zip tool opens it and the
+audio imports anywhere — verified by opening a saved file with .NET's zip reader
+(an implementation independent of the Rust `zip` crate that wrote it) and
+confirming a valid `RIFF`/`WAVE` payload. No `meta.json` yet; add one if a
+version/app-provenance record proves useful.
 
-## Tensions to resolve (why this is a design decision, not a quick swap)
+### How the Muniment tension resolved
 
-- **Muniment backend seam.** Persistence is deliberately KV-shaped so a browser
-  host can swap redb for OPFS/IndexedDB behind the same interface. "The project
-  *is* a zip file" is a different model. Options: (a) keep the KV seam as the
-  live/working store and make zip an import/export envelope over it; (b) make
-  the zip the canonical at-rest format and treat the KV store as a cache. (a)
-  preserves the browser story with least disruption and is the likely answer.
-- **CBOR is already planned.** `PROJECT_DESCRIPTION.md` sets postcard -> CBOR at
-  FT8 to align with Moothold. The serialization half of "open format" lands with
-  that move regardless; this plan adds the container half.
-- **Content addressing.** `MediaRef` is BLAKE3 over samples + sample rate.
-  Storing media as WAV/FLAC means the hash must be defined over decoded samples,
-  not file bytes, or `MediaRef` identity changes. Keep hashing decoded samples;
-  the file is a carrier.
-- **Compression vs. exactness.** FLAC is lossless and importable; prefer it over
-  raw or lossy. WAV is the safe floor.
+The earlier draft framed this as "zip file vs. KV seam," with the KV seam
+(browser OPFS/IndexedDB) as the thing at risk. **That was a false choice, and the
+maintainer caught it: a zip is just another `Backend`.** So the seam is kept and
+the archive lives *under* it — Muniment gained a `ZipBackend` (`zip` feature)
+whose entry names are the store's keys. `ProjectStore` stays backend-agnostic;
+only the media-value codec and the key names changed on the Hocket side. The
+browser story is intact (a future OPFS-backed store still slots into the same
+seam), Muniment earned a second real backend, and no dependency was dropped.
+
+`ZipBackend` is snapshot-oriented: it holds the archive in memory and rewrites
+the whole file atomically (temp + rename) on each mutating call. That fits
+Hocket's whole-project `apply` exactly; it is the wrong backend for
+high-frequency incremental appends, which stay on redb. Documented as such in
+muniment.
+
+### Decisions locked in
+
+- **Content addressing over decoded audio.** `MediaRef` is BLAKE3 over samples +
+  sample rate. The WAV file is a carrier: on load the reference is re-verified
+  against the *decoded* samples, not the file bytes, so `MediaRef` identity is
+  unchanged by the format move.
+- **WAV now, FLAC later.** Mono 32-bit-float WAV via the `hound` dependency
+  Hocket already had (its exporter uses it). FLAC is lossless and smaller but
+  needs a new codec dependency and has no strong pure-Rust encoder yet; deferred
+  as a size optimization, not correctness.
+- **`Stored` (no zip compression).** Keeps Muniment's `zip` dependency free of a
+  codec (no flate2). Revisit if archive size matters; FLAC media would help more.
+- **Clean break, no shim.** No `.hock` file existed on disk, so the old
+  redb/`HOCKMED\0` framing has no read path (DOC_POLICY section 3).
 
 ## The CBOR half (structure serialization)
 
@@ -124,14 +122,23 @@ FT9 wire protocol needs Moothold coordination. Still open for FT8: the media
 half (zip container of standard audio) and whatever Moothold-schema alignment
 FT9 needs.
 
-## Sequencing
+## What remains
 
-Fold into FT8 alongside the CBOR move rather than bolting a second format change
-on later. Cost-free to defer until then: no `.hock` file exists on disk yet, so
-there is no at-rest data to migrate when the container lands.
+- **FLAC media** as a size optimization over WAV (needs an encoder dependency).
+- **`meta.json`** provenance entry, if useful.
+- **FT9 Moothold-schema alignment** for the hand-off wire protocol — separate
+  from at-rest format; the CBOR manifest already shares Moothold's encoding.
+- Consider promoting the doctrine into `PROJECT_DESCRIPTION.md` at goal level
+  (maintainer-owned; not edited here).
 
 ## Progress
 
 - 2026-07-14: Doctrine captured from maintainer direction during the
-  Strophe -> Hocket rename. Extension set to `.hock`. No code toward the zip
-  container yet; current format remains the redb/postcard bundle above.
+  Strophe -> Hocket rename. Extension set to `.hock`.
+- 2026-07-14: **CBOR half LANDED** (structure) — manifest + hand-off envelope on
+  ciborium; postcard removed.
+- 2026-07-14: **Media/container half LANDED** — `.hock` is now a zip of
+  `manifest.cbor` + `media/<hash>.wav`, over a new Muniment `ZipBackend` (seam
+  kept, not dropped). WAV via `hound`; hash still over decoded samples. Verified
+  openable by an independent zip reader. Engine + host + muniment suites green.
+  FT8's open-format goal is met; FLAC/`meta.json` are follow-on polish.

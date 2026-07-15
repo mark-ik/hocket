@@ -53,11 +53,11 @@ before any other doc in this directory.
   - **LANDED.** Real cached summed/per-layer waveform projections through
   responsive Chisel leaves, plus shared configurable meter ballistics.
 - [2026-07-14_open-project-format_plan.md](2026-07-14_open-project-format_plan.md)
-  - **DOCTRINE + CBOR LANDED; media half deferred to FT8.** A `.hock` file must
-  be openable and its material importable without Hocket — no lock-in. The
-  structure serialization moved postcard -> CBOR (ciborium) for both the manifest
-  and the hand-off envelope on 2026-07-14. Still to do: the zip container of
-  standard-audio (WAV/FLAC) media, at FT8.
+  - **DOCTRINE + FULLY LANDED.** A `.hock` file must be openable and its material
+  importable without Hocket — no lock-in. Realized 2026-07-14: a `.hock` is a
+  zip of `manifest.cbor` (CBOR structure) + `media/<hash>.wav` (standard audio),
+  over a Muniment `ZipBackend` (the seam was kept, not dropped). Follow-on polish
+  only: FLAC media, a `meta.json` provenance entry.
 
 ## Archive
 
@@ -131,9 +131,9 @@ section whenever a durable working insight emerges from a session.
   bespoke converter. The specialty-project-format norm (opaque, app-only) is a
   failure mode we reject as product identity, alongside plugin gravity and
   DAW scope creep. Long-term target is a zip container of standard-audio media
-  plus documented structure. Structure is now CBOR (self-describing,
-  cross-language); the media half (standard audio in a zip container) is the
-  remaining pre-alpha gap, not the destination. See
+  plus documented structure. Realized 2026-07-14: a `.hock` is a zip of
+  `manifest.cbor` (self-describing CBOR) + `media/<hash>.wav` (standard audio),
+  over a Muniment `ZipBackend`. FLAC and a provenance entry are follow-on. See
   [2026-07-14_open-project-format_plan.md](2026-07-14_open-project-format_plan.md).
 
 ## Reference reading

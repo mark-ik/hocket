@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 
 use armillary::{ActorHandle, Emitter, Wake, spawn};
-use muniment::RedbBackend;
+use muniment::ZipBackend;
 use std::collections::BTreeSet;
 use hocket_engine::export::{ExportLength, render_mix, write_stereo_wav};
 use hocket_engine::media::InMemoryStore;
@@ -68,7 +68,7 @@ fn run_command(command: ProjectCommand, updates: &Emitter<ProjectUpdate>) {
             media,
             saved_head,
         } => {
-            let result = RedbBackend::open(&path)
+            let result = ZipBackend::open(&path)
                 .map_err(|error| error.to_string())
                 .and_then(|backend| {
                     pollster::block_on(ProjectStore::new(backend).save(&bundle, &media))
@@ -83,7 +83,7 @@ fn run_command(command: ProjectCommand, updates: &Emitter<ProjectUpdate>) {
             }
         }
         ProjectCommand::Open { path } => {
-            let result = RedbBackend::open(&path)
+            let result = ZipBackend::open(&path)
                 .map_err(|error| error.to_string())
                 .and_then(|backend| {
                     pollster::block_on(ProjectStore::new(backend).load())

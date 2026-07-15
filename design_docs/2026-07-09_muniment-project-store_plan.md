@@ -33,3 +33,8 @@ second filesystem protocol inside Hocket.
 - 2026-07-09: **LANDED.** Generic storage tests and Genet-host Redb save/open
   API pass. The local rail reports unavailable media after an open. Remaining
   host work is user-facing project selection and save/open controls.
+- 2026-07-14: **Backend superseded.** The Muniment seam and this store's
+  session/history/`MediaRef` semantics are unchanged, but the desktop `.hock`
+  backend moved from redb to a new Muniment `ZipBackend`, and media now stores as
+  WAV, so a `.hock` file is an openable zip. See
+  [2026-07-14_open-project-format_plan.md](2026-07-14_open-project-format_plan.md).

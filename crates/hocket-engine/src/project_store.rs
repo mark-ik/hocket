@@ -1,25 +1,29 @@
 //! Durable Hocket project storage over Muniment's host-supplied byte backend.
 //!
+//! With a [`ZipBackend`](muniment::ZipBackend) the keys here become the entry
+//! names of a plain zip archive, so a saved `.hock` file opens in any unzip
+//! tool: the manifest is `manifest.cbor` and each captured phrase is an ordinary
+//! `media/<hash>.wav`. That openable, importable layout is the no-lock-in
+//! project-format doctrine made concrete; the store itself is backend-agnostic.
+//!
 //! The model's [`ProjectBundle`] is one mutable manifest. Captured media stays
-//! immutable and content-addressed under its existing [`MediaRef`]. Hocket
-//! deliberately does not use Muniment's `BlobStore` here: `MediaRef` hashes the
-//! capture sample rate and samples together, which is Hocket's audio identity.
+//! immutable and content-addressed under its existing [`MediaRef`], which hashes
+//! the capture sample rate and decoded samples together — the WAV file is just a
+//! carrier, so the reference is verified against the *decoded* audio on load,
+//! not the file bytes.
 
 use std::collections::BTreeSet;
+use std::io::Cursor;
 
 use muniment::{Backend, StoreError, WriteOp};
 use hocket_model::{MediaRef, PersistenceError, ProjectBundle};
 
 use crate::media::{InMemoryStore, MediaBuffer, MediaStore, hash_buffer};
 
-/// The single mutable manifest key for one Hocket project backend.
-pub const MANIFEST_KEY: &str = "hocket/manifest";
-const MEDIA_PREFIX: &str = "hocket/media/";
-// Renamed with the product (2026-07-14). Pre-rename bundles are not readable
-// and no legacy path is kept: no saved project predates the rename.
-const MEDIA_MAGIC: &[u8; 8] = b"HOCKMED\0";
-const MEDIA_VERSION: u16 = 1;
-const MEDIA_HEADER_LEN: usize = 8 + 2 + 4 + 8;
+/// The manifest entry name for one Hocket project archive.
+pub const MANIFEST_KEY: &str = "manifest.cbor";
+/// Directory prefix for content-addressed media entries: `media/<hash>.wav`.
+const MEDIA_PREFIX: &str = "media/";
 
 /// Project storage over a host-selected Muniment backend. A desktop host can
 /// use Redb; a browser host can later provide OPFS through the same interface.
@@ -47,6 +51,7 @@ pub enum ProjectStoreError {
         reference: MediaRef,
         reason: &'static str,
     },
+    MediaEncode(String),
     MediaHashMismatch {
         expected: MediaRef,
         actual: MediaRef,
@@ -69,6 +74,7 @@ impl std::fmt::Display for ProjectStoreError {
             Self::InvalidMedia { reference, reason } => {
                 write!(f, "media {reference} is invalid: {reason}")
             }
+            Self::MediaEncode(error) => write!(f, "media encoding failed: {error}"),
             Self::MediaHashMismatch { expected, actual } => {
                 write!(
                     f,
@@ -147,7 +153,7 @@ impl<B: Backend> ProjectStore<B> {
             }
             writes.push(WriteOp::Put {
                 key,
-                value: encode_media(buffer),
+                value: encode_media(buffer)?,
             });
         }
         writes.push(WriteOp::Put {
@@ -203,74 +209,70 @@ fn referenced_media(bundle: &ProjectBundle) -> BTreeSet<MediaRef> {
 }
 
 fn media_key(reference: MediaRef) -> String {
-    let mut key = String::with_capacity(MEDIA_PREFIX.len() + 64);
+    let mut key = String::with_capacity(MEDIA_PREFIX.len() + 64 + 4);
     key.push_str(MEDIA_PREFIX);
     for byte in reference.0 {
         use std::fmt::Write as _;
         write!(&mut key, "{byte:02x}").expect("writing to a string cannot fail");
     }
+    key.push_str(".wav");
     key
 }
 
-fn encode_media(buffer: &MediaBuffer) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(MEDIA_HEADER_LEN + buffer.samples.len() * 4);
-    bytes.extend_from_slice(MEDIA_MAGIC);
-    bytes.extend_from_slice(&MEDIA_VERSION.to_le_bytes());
-    bytes.extend_from_slice(&buffer.sample_rate.to_le_bytes());
-    bytes.extend_from_slice(&(buffer.samples.len() as u64).to_le_bytes());
+/// Encode one mono phrase as a 32-bit float WAV. The audio is stored as an
+/// ordinary WAV so a person can extract and import it without Hocket; identity
+/// still travels in the content-addressed file name, not the bytes.
+fn encode_media(buffer: &MediaBuffer) -> Result<Vec<u8>, ProjectStoreError> {
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: buffer.sample_rate,
+        bits_per_sample: 32,
+        sample_format: hound::SampleFormat::Float,
+    };
+    let mut cursor = Cursor::new(Vec::new());
+    let mut writer = hound::WavWriter::new(&mut cursor, spec)
+        .map_err(|error| ProjectStoreError::MediaEncode(error.to_string()))?;
     for sample in &buffer.samples {
-        bytes.extend_from_slice(&sample.to_le_bytes());
+        writer
+            .write_sample(*sample)
+            .map_err(|error| ProjectStoreError::MediaEncode(error.to_string()))?;
     }
-    bytes
+    writer
+        .finalize()
+        .map_err(|error| ProjectStoreError::MediaEncode(error.to_string()))?;
+    Ok(cursor.into_inner())
 }
 
+/// Decode a stored WAV phrase back to samples. The caller re-hashes the result
+/// against its [`MediaRef`], so a codec or corruption mismatch is caught there.
 fn decode_media(reference: MediaRef, bytes: &[u8]) -> Result<MediaBuffer, ProjectStoreError> {
-    if bytes.len() < MEDIA_HEADER_LEN {
+    let mut reader = hound::WavReader::new(Cursor::new(bytes)).map_err(|_| {
+        ProjectStoreError::InvalidMedia {
+            reference,
+            reason: "unreadable WAV",
+        }
+    })?;
+    let spec = reader.spec();
+    if spec.channels != 1 {
         return Err(ProjectStoreError::InvalidMedia {
             reference,
-            reason: "truncated header",
+            reason: "expected mono audio",
         });
     }
-    if &bytes[..8] != MEDIA_MAGIC {
+    if spec.sample_format != hound::SampleFormat::Float || spec.bits_per_sample != 32 {
         return Err(ProjectStoreError::InvalidMedia {
             reference,
-            reason: "unknown media format",
+            reason: "expected 32-bit float samples",
         });
     }
-    let version = u16::from_le_bytes([bytes[8], bytes[9]]);
-    if version != MEDIA_VERSION {
-        return Err(ProjectStoreError::InvalidMedia {
+    let sample_rate = spec.sample_rate;
+    let samples = reader
+        .samples::<f32>()
+        .collect::<Result<Vec<f32>, _>>()
+        .map_err(|_| ProjectStoreError::InvalidMedia {
             reference,
-            reason: "unsupported media version",
-        });
-    }
-    let sample_rate = u32::from_le_bytes(bytes[10..14].try_into().expect("fixed header slice"));
-    let sample_count = u64::from_le_bytes(bytes[14..22].try_into().expect("fixed header slice"));
-    let Ok(sample_count) = usize::try_from(sample_count) else {
-        return Err(ProjectStoreError::InvalidMedia {
-            reference,
-            reason: "sample count is too large",
-        });
-    };
-    let Some(expected_len) = sample_count
-        .checked_mul(4)
-        .and_then(|sample_bytes| MEDIA_HEADER_LEN.checked_add(sample_bytes))
-    else {
-        return Err(ProjectStoreError::InvalidMedia {
-            reference,
-            reason: "sample payload is too large",
-        });
-    };
-    if bytes.len() != expected_len {
-        return Err(ProjectStoreError::InvalidMedia {
-            reference,
-            reason: "sample payload length does not match header",
-        });
-    }
-    let samples = bytes[MEDIA_HEADER_LEN..]
-        .chunks_exact(4)
-        .map(|sample| f32::from_le_bytes(sample.try_into().expect("four-byte sample")))
-        .collect();
+            reason: "corrupt sample data",
+        })?;
     Ok(MediaBuffer {
         samples,
         sample_rate,
@@ -323,6 +325,35 @@ mod tests {
                 vec![0.25, -0.5, 0.75]
             );
             assert_eq!(backend.get(MANIFEST_KEY).await.unwrap().is_some(), true);
+        });
+    }
+
+    /// The archive entries are human-meaningful file names, not opaque keys, so
+    /// a saved `.hock` is inspectable. Locks the no-lock-in layout against drift.
+    #[test]
+    fn save_uses_human_friendly_entry_names() {
+        block_on(async {
+            let backend = MemoryBackend::new();
+            let project = ProjectStore::new(backend.clone());
+            let mut media = InMemoryStore::new();
+            let bundle = bundle_with_one_layer(&mut media);
+
+            project.save(&bundle, &media).await.unwrap();
+
+            let mut keys = backend.list("").await.unwrap();
+            keys.sort();
+            assert_eq!(keys.len(), 2, "one manifest plus one media entry");
+            assert_eq!(keys[0], "manifest.cbor");
+            assert!(
+                keys[1].starts_with("media/") && keys[1].ends_with(".wav"),
+                "media entry should be media/<hash>.wav, got {}",
+                keys[1]
+            );
+
+            // The stored media entry is a real WAV a person could extract.
+            let wav = backend.get(&keys[1]).await.unwrap().unwrap();
+            assert_eq!(&wav[..4], b"RIFF");
+            assert_eq!(&wav[8..12], b"WAVE");
         });
     }
 
