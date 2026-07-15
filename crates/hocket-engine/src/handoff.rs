@@ -4,8 +4,14 @@
 //! referenced media buffer. The envelope addresses that snapshot to a recipient
 //! and is signed by a session-scoped key derived through `personae`. The durable
 //! sender identity attests that derived key. Murm, Iroh, a file attachment, or
-//! an eventual invite flow can carry its postcard bytes without changing the
+//! an eventual invite flow can carry its CBOR bytes without changing the
 //! application protocol; confidentiality remains the carrier's responsibility.
+//!
+//! The envelope, and the bytes the signature covers, serialize as CBOR via
+//! ciborium (the FT8 serialization migration, 2026-07-14). Signing and
+//! verification both re-serialize the same `UnsignedHandoff`; CBOR over these
+//! `BTreeMap`/`Vec` types is deterministic, so the verifier reconstructs the
+//! exact signed bytes.
 //!
 //! This module deliberately does not merge edits. `hocket-model::History`
 //! retains and integrates divergent branches, but it does not yet synthesize a
@@ -67,8 +73,8 @@ struct UnsignedHandoff<'a> {
 
 #[derive(Debug)]
 pub enum HandoffError {
-    Encode(postcard::Error),
-    Decode(postcard::Error),
+    Encode(String),
+    Decode(String),
     Identity(personae::IdentityError),
     UnsupportedVersion(u16),
     RecipientMismatch,
@@ -119,12 +125,6 @@ impl std::fmt::Display for HandoffError {
 }
 
 impl std::error::Error for HandoffError {}
-
-impl From<postcard::Error> for HandoffError {
-    fn from(error: postcard::Error) -> Self {
-        Self::Encode(error)
-    }
-}
 
 impl From<personae::IdentityError> for HandoffError {
     fn from(error: personae::IdentityError) -> Self {
@@ -189,10 +189,7 @@ impl HandoffEnvelope {
             recipient,
             payload: &payload,
         };
-        let signature = signer
-            .sign(&postcard::to_allocvec(&unsigned)?)
-            .to_bytes()
-            .to_vec();
+        let signature = signer.sign(&cbor_bytes(&unsigned)?).to_bytes().to_vec();
         Ok(Self {
             format_version: Self::FORMAT_VERSION,
             session_id: bundle.session.id,
@@ -204,11 +201,12 @@ impl HandoffEnvelope {
     }
 
     pub fn to_bytes(&self) -> Result<Vec<u8>, HandoffError> {
-        postcard::to_allocvec(self).map_err(HandoffError::Encode)
+        cbor_bytes(self)
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, HandoffError> {
-        let envelope: Self = postcard::from_bytes(bytes).map_err(HandoffError::Decode)?;
+        let envelope: Self = ciborium::from_reader(bytes)
+            .map_err(|error| HandoffError::Decode(error.to_string()))?;
         if envelope.format_version != Self::FORMAT_VERSION {
             return Err(HandoffError::UnsupportedVersion(envelope.format_version));
         }
@@ -244,7 +242,7 @@ impl HandoffEnvelope {
             recipient: self.recipient,
             payload: &self.payload,
         };
-        let signed_bytes = postcard::to_allocvec(&unsigned)?;
+        let signed_bytes = cbor_bytes(&unsigned)?;
         let signature = Ed25519Signature::from_bytes(
             self.signature
                 .as_slice()
@@ -337,6 +335,15 @@ impl ReceivedHandoff {
             imported_media,
         })
     }
+}
+
+/// Serialize a value to CBOR. Used for both the on-wire envelope and the exact
+/// bytes the signature covers, so signing and verification stay byte-identical.
+fn cbor_bytes<T: Serialize>(value: &T) -> Result<Vec<u8>, HandoffError> {
+    let mut bytes = Vec::new();
+    ciborium::into_writer(value, &mut bytes)
+        .map_err(|error| HandoffError::Encode(error.to_string()))?;
+    Ok(bytes)
 }
 
 fn handoff_salt(session_id: SessionId) -> Vec<u8> {

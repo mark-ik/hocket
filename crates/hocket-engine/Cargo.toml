@@ -20,7 +20,7 @@ muniment = { workspace = true }
 hound = { workspace = true }
 personae = { workspace = true }
 serde = { workspace = true }
-postcard = { workspace = true }
+ciborium = { workspace = true }
 
 [dev-dependencies]
 pollster = "0.4"

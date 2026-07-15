@@ -11,7 +11,7 @@
 //! - [`track`] — `Track`, `TrackColor`
 //! - [`session`] — `Session`, `TimeSignature`, documented defaults
 //! - [`history`] — `History`, `HistoryNode`, `Edit`, apply/invert/commit/checkout
-//! - [`persistence`] — `ProjectBundle`, postcard save/load
+//! - [`persistence`] — `ProjectBundle`, CBOR save/load
 //!
 //! ## Defaults (per `PROJECT_DESCRIPTION.md`)
 //!

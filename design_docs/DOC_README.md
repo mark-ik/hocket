@@ -53,10 +53,11 @@ before any other doc in this directory.
   - **LANDED.** Real cached summed/per-layer waveform projections through
   responsive Chisel leaves, plus shared configurable meter ballistics.
 - [2026-07-14_open-project-format_plan.md](2026-07-14_open-project-format_plan.md)
-  - **DOCTRINE / DEFERRED TO FT8.** A `.hock` file must be openable and its
-  material importable without Hocket — no lock-in. Target: a zip container of
-  CBOR structure + standard-audio (WAV/FLAC) media, folded into the planned
-  postcard->CBOR move. Current format is still the opaque redb/postcard bundle.
+  - **DOCTRINE + CBOR LANDED; media half deferred to FT8.** A `.hock` file must
+  be openable and its material importable without Hocket — no lock-in. The
+  structure serialization moved postcard -> CBOR (ciborium) for both the manifest
+  and the hand-off envelope on 2026-07-14. Still to do: the zip container of
+  standard-audio (WAV/FLAC) media, at FT8.
 
 ## Archive
 
@@ -130,8 +131,9 @@ section whenever a durable working insight emerges from a session.
   bespoke converter. The specialty-project-format norm (opaque, app-only) is a
   failure mode we reject as product identity, alongside plugin gravity and
   DAW scope creep. Long-term target is a zip container of standard-audio media
-  plus documented structure. The current redb/postcard bundle is a pre-alpha
-  starting point, not the destination. See
+  plus documented structure. Structure is now CBOR (self-describing,
+  cross-language); the media half (standard audio in a zip container) is the
+  remaining pre-alpha gap, not the destination. See
   [2026-07-14_open-project-format_plan.md](2026-07-14_open-project-format_plan.md).
 
 ## Reference reading

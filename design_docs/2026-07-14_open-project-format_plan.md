@@ -106,9 +106,23 @@ handled:
   read it without already knowing the encoding. A clean CBOR-only cut sidesteps
   this; a read-both transition would need an out-of-band magic byte.
 
-Because no `.hock` file exists on disk, FT8 can make a **clean break** to
-CBOR-only with no read-both shim (DOC_POLICY section 3). Bump `FORMAT_VERSION`
-and stop reading postcard.
+Because no `.hock` file exists on disk, this was a **clean break** to
+CBOR-only with no read-both shim (DOC_POLICY section 3).
+
+**LANDED 2026-07-14 (ahead of the rest of FT8).** The manifest
+(`ProjectBundle`) and the hand-off envelope both serialize as CBOR via ciborium;
+postcard is removed from the workspace. `FORMAT_VERSION` stayed at 1 on purpose:
+it tracks the payload *schema*, which did not change, and it cannot discriminate
+encodings anyway (you cannot read the version without already knowing the
+encoding). The hand-off signature is computed over the CBOR bytes of
+`UnsignedHandoff`; signing and verification re-serialize the same value, and CBOR
+over the envelope's `BTreeMap`/`Vec` types is deterministic, so verification
+reconstructs identical bytes — covered by the existing round-trip, tampering, and
+determinism tests. Pulling this out of FT8 early was safe because the manifest
+and envelope are Hocket's own types, not Moothold's message schema; only the
+FT9 wire protocol needs Moothold coordination. Still open for FT8: the media
+half (zip container of standard audio) and whatever Moothold-schema alignment
+FT9 needs.
 
 ## Sequencing
 

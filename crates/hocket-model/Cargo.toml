@@ -13,5 +13,5 @@ publish = false
 # Intentionally minimal — this crate must remain framework-agnostic.
 # No cpal, no xilem, no masonry, no winit.
 serde = { workspace = true }
-postcard = { workspace = true }
+ciborium = { workspace = true }
 uuid = { workspace = true }

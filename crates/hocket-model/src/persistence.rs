@@ -1,19 +1,26 @@
 //! Save / load support for sessions.
 //!
-//! Sessions serialize via [postcard](https://docs.rs/postcard) — a
-//! compact serde-based binary format. The choice is documented in the
-//! initial plan's Findings; postcard was picked over rkyv (zero-copy
-//! complexity not warranted yet), bincode (less compact, less
-//! portable), and serde_json (HashMap key-order is non-deterministic
-//! and BTreeMap conversion would be needed anyway).
+//! Sessions serialize via [ciborium](https://docs.rs/ciborium) as CBOR
+//! (RFC 8949). CBOR is self-describing and cross-language, so a saved
+//! project is inspectable without Hocket, and it is the serialization
+//! Moothold uses — the same bytes persist locally and travel on a
+//! hand-off. This replaced postcard at the FT8 serialization migration
+//! (2026-07-14); postcard had been the FT2 choice (compact, but Rust-only
+//! and not self-describing).
 //!
-//! **FT8 migration target:** ciborium (CBOR), to align with Moothold.
-//! Postcard survives until the FT8 coordinated migration.
+//! Because `Session` and `History` use `BTreeMap` collections, ciborium
+//! emits map entries in sorted key order with definite lengths, so encoded
+//! output is deterministic — the same logical state encodes to the same
+//! bytes every time. That determinism is a prerequisite for
+//! content-addressing the project bundle itself later. If a future field
+//! introduces a non-`BTreeMap` map or a float that needs shortest-form
+//! reduction, revisit against RFC 8949 §4.2 canonical rules.
 //!
-//! Because `Session` and `History` use `BTreeMap` collections,
-//! encoded byte output is deterministic — the same logical state
-//! encodes to the same bytes every time. That's a prerequisite for
-//! content-addressing the project bundle itself later.
+//! Encoding is not carried in `format_version`: that field tracks the
+//! payload *schema*, which this migration did not change, and it cannot be
+//! read without first knowing the encoding. Pre-CBOR postcard bundles are
+//! simply not decodable, which is a clean break — no such file exists on
+//! disk (DOC_POLICY section 3).
 
 use serde::{Deserialize, Serialize};
 
@@ -36,8 +43,8 @@ pub struct ProjectBundle {
 
 #[derive(Debug)]
 pub enum PersistenceError {
-    Encode(postcard::Error),
-    Decode(postcard::Error),
+    Encode(String),
+    Decode(String),
     UnsupportedVersion(u16),
 }
 
@@ -67,15 +74,19 @@ impl ProjectBundle {
         }
     }
 
-    /// Encode to postcard bytes. Deterministic given equal input
-    /// because all collections are `BTreeMap`.
+    /// Encode to CBOR bytes. Deterministic given equal input because all
+    /// collections are `BTreeMap` (sorted keys, definite lengths).
     pub fn to_bytes(&self) -> Result<Vec<u8>, PersistenceError> {
-        postcard::to_allocvec(self).map_err(PersistenceError::Encode)
+        let mut bytes = Vec::new();
+        ciborium::into_writer(self, &mut bytes)
+            .map_err(|error| PersistenceError::Encode(error.to_string()))?;
+        Ok(bytes)
     }
 
-    /// Decode from postcard bytes.
+    /// Decode from CBOR bytes.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, PersistenceError> {
-        let bundle: Self = postcard::from_bytes(bytes).map_err(PersistenceError::Decode)?;
+        let bundle: Self = ciborium::from_reader(bytes)
+            .map_err(|error| PersistenceError::Decode(error.to_string()))?;
         if bundle.format_version != Self::FORMAT_VERSION {
             return Err(PersistenceError::UnsupportedVersion(bundle.format_version));
         }
@@ -145,7 +156,8 @@ mod tests {
     fn rejects_unknown_format_version() {
         let mut bundle = ProjectBundle::new(Session::new_default(), History::new());
         bundle.format_version += 1;
-        let bytes = postcard::to_allocvec(&bundle).unwrap();
+        let mut bytes = Vec::new();
+        ciborium::into_writer(&bundle, &mut bytes).unwrap();
         assert_eq!(
             ProjectBundle::from_bytes(&bytes).unwrap_err().to_string(),
             "unsupported project format version 2"
