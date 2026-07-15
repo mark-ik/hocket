@@ -52,6 +52,11 @@ before any other doc in this directory.
 - [2026-07-11_real_waveforms_meter_ballistics_plan.md](2026-07-11_real_waveforms_meter_ballistics_plan.md)
   - **LANDED.** Real cached summed/per-layer waveform projections through
   responsive Chisel leaves, plus shared configurable meter ballistics.
+- [2026-07-14_open-project-format_plan.md](2026-07-14_open-project-format_plan.md)
+  - **DOCTRINE / DEFERRED TO FT8.** A `.hock` file must be openable and its
+  material importable without Hocket — no lock-in. Target: a zip container of
+  CBOR structure + standard-audio (WAV/FLAC) media, folded into the planned
+  postcard->CBOR move. Current format is still the opaque redb/postcard bundle.
 
 ## Archive
 
@@ -120,6 +125,14 @@ section whenever a durable working insight emerges from a session.
   same track on the same turn; CRDTs apply to shared session structure
   (track existence, turn ownership, mute, locked BPM), never to audio
   data. Solo is local monitoring state.
+- **No lock-in — the project file is a container, not a cage.** A `.hock`
+  file must be openable, and the audio inside importable, without Hocket or a
+  bespoke converter. The specialty-project-format norm (opaque, app-only) is a
+  failure mode we reject as product identity, alongside plugin gravity and
+  DAW scope creep. Long-term target is a zip container of standard-audio media
+  plus documented structure. The current redb/postcard bundle is a pre-alpha
+  starting point, not the destination. See
+  [2026-07-14_open-project-format_plan.md](2026-07-14_open-project-format_plan.md).
 
 ## Reference reading
 
@@ -154,7 +167,7 @@ Hand-picked technical references that inform Hocket's architecture:
   melodic line between voices, each sounding while the others rest — the
   pass-the-mic model in a word. The rename also freed us from the bare
   `strophe` crate name, squatted since 2016 by a dead redirect. Durable
-  strings changed with it: the project extension is `.hocket`, the bundle
+  strings changed with it: the project extension is `.hock`, the bundle
   keys are `hocket/manifest` + `hocket/media/`, the hand-off salt is
   `hocket/handoff/v2/`, and the host identity lives under a `Hocket` data
   root. A one-time migration re-seals a pre-rename local identity so an

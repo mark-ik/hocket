@@ -221,7 +221,7 @@ impl AppState {
             return;
         }
         if let Some(path) = rfd::FileDialog::new()
-            .add_filter("Hocket project", &["hocket"])
+            .add_filter("Hocket project", &["hock"])
             .pick_file()
         {
             self.project_status = ProjectStatus::Loading;
@@ -242,10 +242,10 @@ impl AppState {
         let path = match self.project_path.clone() {
             Some(path) => Some(path),
             None => rfd::FileDialog::new()
-                .add_filter("Hocket project", &["hocket"])
-                .set_file_name("untitled.hocket")
+                .add_filter("Hocket project", &["hock"])
+                .set_file_name("untitled.hock")
                 .save_file()
-                .map(|path| ensure_extension(path, "hocket")),
+                .map(|path| ensure_extension(path, "hock")),
         };
         if let Some(path) = path {
             let bundle = ProjectBundle::new(self.session.clone(), self.history.clone());
