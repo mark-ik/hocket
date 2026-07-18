@@ -135,11 +135,18 @@ Organized by feature target and validation, not by time.
 - **Review surface shape.** A card in the circle for a single incoming. An
   overlay only if a queue ever appears.
 - **Saved contacts.** Remember the last sender in this cut, which the reply
-  auto-address design already provides. No address-book capability exists to
-  reuse: personae is identity primitives only, and the `mere-roster` crate is a
-  graph-object inspector panel, unrelated and mere-coupled. A portable contacts
-  capability, if wanted, is a separate plan and likely belongs near personae or
-  moot, since mere and isometry would share it. It is out of scope here.
+  auto-address design already provides. No stored address-book capability exists
+  to reuse. The relevant prior art is the *resolution* half, not the storage
+  half: mere's `gazetteer` crate (`crates/persona/gazetteer`, formerly `gazette`)
+  resolves a handle or key to reachable, trust-stated endpoints (WebFinger
+  today), and is incubating, mere-coupled, and unconsumed. The stored contact
+  record is designed but unbuilt in mere's 2026-06-15 contact-identity brief,
+  which roots contacts on the key with handle and endpoints hanging off it.
+  Hocket's `.hocket` token already is that root key, so the MVP needs no
+  resolver. A portable contacts capability, if wanted later, belongs on the
+  persona tier beside `identity` and `gazetteer` and promoted to a standalone
+  repo like the rest of the family, not inlined in `hocket-genet`. Out of scope
+  here.
 
 ## Findings
 
@@ -150,10 +157,13 @@ Organized by feature target and validation, not by time.
   auto-addressable, which softens the one-time key-exchange friction.
 - The rail already carries an identity line and a `handoff-note`, so the contact
   token and the incoming card have a home without a layout change.
-- No address-book capability exists in personae, hocket, or a shared crate. The
-  `mere-roster` hit from a contacts search is a graph-object inspector panel,
-  not a peer book. Remember-last-sender is therefore the honest MVP, and it is
-  free from the reply auto-address path.
+- No stored address-book capability exists to reuse. The resolution half does:
+  mere's `gazetteer` (formerly `gazette`) resolves handles or keys to endpoints,
+  but it is incubating, mere-coupled, and unconsumed, and Hocket's key-rooted
+  token needs no resolver. The stored contact record is designed but unbuilt
+  (mere's 2026-06-15 contact-identity brief). Remember-last-sender is therefore
+  the honest MVP, free from the reply auto-address path. The `mere-roster` crate
+  is unrelated: it is a graph-object inspector panel.
 
 ## Progress
 
@@ -162,5 +172,10 @@ Organized by feature target and validation, not by time.
   the current code, not doc-to-doc. Nothing implemented yet.
 - 2026-07-18: Decisions settled with Mark. File is `.hocket`; token is hex;
   review is a card in the circle; contacts is remember-last-sender, with a
-  portable address book left as a separate future plan after confirming no
-  existing capability could be reused.
+  portable address book left as a separate future plan.
+- 2026-07-18: Contacts prior-art check corrected. mere's `gazetteer` (formerly
+  `gazette`) is the handle-resolution half and is incubating and mere-coupled;
+  the stored contact record is designed but unbuilt (mere's 2026-06-15
+  contact-identity brief, contacts key-rooted). Hocket's token is already the
+  root key, so the MVP needs no resolver, and a shared contacts capability would
+  live on the persona tier if built.
