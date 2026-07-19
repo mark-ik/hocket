@@ -24,8 +24,8 @@ use hocket_model::{
 };
 use cambium::SelectState;
 use genet_clipboard::{SystemClipboard, TextClipboard};
-use hocket_engine::handoff::HandoffEnvelope;
-use personae::Ed25519PublicKey;
+use hocket_engine::handoff::{HandoffEnvelope, ReceivedHandoff};
+use personae::{Ed25519PublicKey, IdentityProvider};
 
 use crate::identity::{LocalIdentity, parse_contact_token};
 use crate::project_io::{ProjectCommand, ProjectUpdate};
@@ -52,6 +52,7 @@ enum ProjectStatus {
     HandoffReceived(String),
     TokenCopied,
     RecipientSet(String),
+    HandoffAccepted,
     Error(String),
 }
 
@@ -91,6 +92,9 @@ pub struct AppState {
     /// token or by accepting an incoming hand-off (which addresses the reply
     /// back to its sender). Host-local; a recipient is not project state.
     recipient: Option<Ed25519PublicKey>,
+    /// A received, authenticated hand-off staged for review. It is not applied
+    /// to the live session until the musician accepts it; discarding drops it.
+    incoming: Option<ReceivedHandoff>,
     /// Host-local export intent. It changes only the rendered file, never the
     /// project graph or its syncable history.
     export_length: ExportLength,
@@ -164,6 +168,7 @@ impl AppState {
             identity,
             clipboard: SystemClipboard::new().ok(),
             recipient: None,
+            incoming: None,
             export_length: ExportLength::OneCycle,
             audio_devices,
             audio_input_select: SelectState::default(),
@@ -211,6 +216,7 @@ impl AppState {
             ProjectStatus::HandoffReceived(sender) => format!("hand-off received from {sender}"),
             ProjectStatus::TokenCopied => "contact token copied".to_string(),
             ProjectStatus::RecipientSet(fingerprint) => format!("handing to {fingerprint}"),
+            ProjectStatus::HandoffAccepted => "hand-off accepted".to_string(),
             ProjectStatus::Error(message) => format!("project error: {message}"),
             ProjectStatus::Idle => {
                 if self.is_dirty() {
@@ -341,6 +347,118 @@ impl AppState {
             .command(ProjectCommand::WriteHandoff { path, envelope })
         {
             self.project_status = ProjectStatus::Error("project worker stopped".to_string());
+        }
+    }
+
+    /// Whether a hand-off is staged for review.
+    pub fn has_incoming(&self) -> bool {
+        self.incoming.is_some()
+    }
+
+    /// The staged hand-off's sender fingerprint, for the review card.
+    pub fn incoming_sender_fingerprint(&self) -> Option<String> {
+        self.incoming
+            .as_ref()
+            .map(|received| key_fingerprint(&received.sender))
+    }
+
+    /// A one-line summary of the staged hand-off: whether it continues this
+    /// session or opens a new one, and its track, layer, and media counts.
+    pub fn incoming_summary(&self) -> Option<String> {
+        self.incoming.as_ref().map(|received| {
+            let session = &received.bundle.session;
+            let layers: usize = session.tracks.iter().map(|track| track.layers.len()).sum();
+            let continues = session.id == self.session.id;
+            format!(
+                "{} \u{00b7} {} tracks \u{00b7} {} layers \u{00b7} {} media",
+                if continues {
+                    "continues this session"
+                } else {
+                    "a new session"
+                },
+                session.tracks.len(),
+                layers,
+                received.media.len()
+            )
+        })
+    }
+
+    /// Open a `.hocket` hand-off addressed to this identity. Reading and
+    /// authenticating it run off the kernel thread; the result stages for
+    /// review via [`apply_project_update`](Self::apply_project_update).
+    pub fn choose_handoff_to_open(&mut self) {
+        if self.is_project_io_active() {
+            return;
+        }
+        let recipient = match self.identity.as_ref() {
+            Ok(identity) => identity.master_public_key(),
+            Err(_) => {
+                self.project_status = ProjectStatus::Error("identity unavailable".to_string());
+                return;
+            }
+        };
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("Hocket hand-off", &["hocket"])
+            .pick_file()
+        else {
+            return;
+        };
+        if !self
+            .project_worker
+            .command(ProjectCommand::ReadHandoff { path, recipient })
+        {
+            self.project_status = ProjectStatus::Error("project worker stopped".to_string());
+        }
+    }
+
+    /// Discard the staged hand-off without applying it.
+    pub fn discard_incoming(&mut self) {
+        self.incoming = None;
+    }
+
+    /// Accept the staged hand-off into the live session. When it continues this
+    /// session, its branch is integrated and its head checked out, preserving
+    /// the local branch; when it is a new session, it is adopted wholesale. The
+    /// sender becomes the reply recipient either way.
+    pub fn accept_incoming(&mut self) {
+        let Some(received) = self.incoming.take() else {
+            return;
+        };
+        let sender = received.sender;
+        if received.bundle.session.id == self.session.id {
+            let mut bundle = ProjectBundle::new(self.session.clone(), self.history.clone());
+            let mut media = self.store.clone();
+            match received.accept_branch(&mut bundle, &mut media) {
+                Ok(_report) => {
+                    self.stop_all();
+                    self.session = bundle.session;
+                    self.history = bundle.history;
+                    self.store = media;
+                    self.recipient = Some(sender);
+                    self.project_status = ProjectStatus::HandoffAccepted;
+                    self.resync_tempo();
+                    self.reconcile_all_playback();
+                }
+                Err(error) => {
+                    self.project_status = ProjectStatus::Error(format!("accept: {error}"));
+                }
+            }
+        } else {
+            // A new session from a peer: adopt it wholesale, like opening a
+            // project, but with no file yet so it reads as unsaved.
+            self.stop_all();
+            self.session = received.bundle.session;
+            self.history = received.bundle.history;
+            self.store = received.media;
+            self.missing_media.clear();
+            self.capture_phase = CapturePhase::Idle;
+            self.capturing_track = None;
+            self.solo.clear();
+            self.project_path = None;
+            self.recipient = Some(sender);
+            self.project_status = ProjectStatus::HandoffAccepted;
+            self.resync_tempo();
+            self.reconcile_all_playback();
         }
     }
 
@@ -488,19 +606,10 @@ impl AppState {
                 self.project_status = ProjectStatus::HandedOff(path);
             }
             ProjectUpdate::HandoffReceived { received } => {
-                // The carrier lands here. Staging, the review card, and
-                // acceptance are task 4 of the hand-off UI plan; no UI issues
-                // ReadHandoff yet, so this arm is not reached at runtime until
-                // that work wires the receive gesture. For now, surface the
-                // sender honestly.
-                let sender: String = received
-                    .sender
-                    .to_bytes()
-                    .iter()
-                    .take(6)
-                    .map(|byte| format!("{byte:02x}"))
-                    .collect();
-                self.project_status = ProjectStatus::HandoffReceived(sender);
+                // Stage the authenticated hand-off for review. It does not touch
+                // the live session until the musician accepts it.
+                self.project_status = ProjectStatus::HandoffReceived(key_fingerprint(&received.sender));
+                self.incoming = Some(received);
             }
             ProjectUpdate::Failed { action, message } => {
                 self.project_status = ProjectStatus::Error(format!("{action}: {message}"));

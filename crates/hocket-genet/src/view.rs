@@ -239,6 +239,50 @@ fn rail(state: &AppState) -> Child {
             )));
         }
     }
+    // Receive a hand-off someone addressed to you.
+    kids.push(Box::new(clickable(
+        el("div", text("Receive"))
+            .attr("class", "project-command")
+            .attr("role", "button")
+            .attr("aria-label", "Open a hand-off file addressed to you"),
+        |state: &mut AppState, _| state.choose_handoff_to_open(),
+    )));
+    // A staged incoming hand-off: show who and what before it touches the
+    // session, with Accept (branch or adopt) and Discard.
+    if state.has_incoming() {
+        let sender = state.incoming_sender_fingerprint().unwrap_or_default();
+        let summary = state.incoming_summary().unwrap_or_default();
+        kids.push(Box::new(
+            el(
+                "div",
+                (
+                    el("div", text(format!("from {sender}"))).attr("class", "eyebrow"),
+                    el("div", text(summary)).attr("class", "handoff-note"),
+                    el(
+                        "div",
+                        (
+                            clickable(
+                                el("div", text("Accept"))
+                                    .attr("class", "project-command project-save")
+                                    .attr("role", "button")
+                                    .attr("aria-label", "Accept the staged hand-off"),
+                                |state: &mut AppState, _| state.accept_incoming(),
+                            ),
+                            clickable(
+                                el("div", text("Discard"))
+                                    .attr("class", "project-command")
+                                    .attr("role", "button")
+                                    .attr("aria-label", "Discard the staged hand-off"),
+                                |state: &mut AppState, _| state.discard_incoming(),
+                            ),
+                        ),
+                    )
+                    .attr("class", "handoff-card-actions"),
+                ),
+            )
+            .attr("class", "handoff-card"),
+        ));
+    }
     Box::new(el("div", kids).attr("class", "rail"))
 }
 

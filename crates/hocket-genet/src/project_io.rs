@@ -45,8 +45,6 @@ pub enum ProjectCommand {
     /// Read a hand-off file, authenticate it against `recipient`, and
     /// materialize its snapshot for review. Verification needs only the
     /// recipient's public key, so the whole receive runs off the kernel thread.
-    // Constructed by the receive gesture (hand-off UI plan, task 4), not yet wired.
-    #[allow(dead_code)]
     ReadHandoff {
         path: PathBuf,
         recipient: Ed25519PublicKey,
