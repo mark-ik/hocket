@@ -77,6 +77,8 @@ genet-scripted-dom = { git = "https://github.com/mark-ik/genet.git", branch = "m
 genet-layout = { git = "https://github.com/mark-ik/genet.git", branch = "main" }
 genet-winit-host = { git = "https://github.com/mark-ik/genet.git", branch = "main" }
 genet-clipboard = { git = "https://github.com/mark-ik/genet.git", branch = "main" }
+genet-probe = { git = "https://github.com/mark-ik/genet.git", branch = "main" }
+image = { version = "0.25", default-features = false, features = ["png"] }
 netrender = { git = "https://github.com/mark-ik/netrender.git", branch = "main" }
 paint_list_api = { git = "https://github.com/mark-ik/netrender.git", branch = "main" }
 paint_list_render = { git = "https://github.com/mark-ik/netrender.git", branch = "main" }

@@ -10,12 +10,14 @@
 mod identity;
 mod leaves;
 mod project_io;
+mod scenario;
 mod state;
 mod theme;
 mod view;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::mpsc::Receiver;
@@ -77,6 +79,15 @@ struct App {
     a11y_route: HashMap<AccessNodeId, NodeId>,
     project_worker: Option<ActorHandle<ProjectCommand>>,
     project_updates: Receiver<ProjectUpdate>,
+    /// The self-drive scenario (activated by `HOCKET_SCENARIO`), pumped one step
+    /// per timer tick. `None` for a normal interactive launch. Taken out of
+    /// `self` during a tick, so capture-dir state lives separately below.
+    scenario: Option<scenario::Run>,
+    /// Where captures and the receipt land. Held apart from `scenario` so
+    /// `Driveable::capture` can resolve a path while the scenario is taken out.
+    capture_dir: Option<PathBuf>,
+    /// A capture the next rendered frame fulfills, set by `Driveable::capture`.
+    pending_capture: Option<PathBuf>,
 }
 
 impl App {
@@ -271,6 +282,12 @@ impl App {
             ExternalTexturePlacement::new([0.0, 0.0, pw as f32, ph as f32]),
         );
         frame.present();
+
+        // Scenario self-capture: the receipt is the frame just presented, read
+        // back from the same rasterized scene (not a re-render).
+        if let Some(path) = self.pending_capture.take() {
+            scenario::capture_frame(host, &view, pw, ph, &path);
+        }
     }
 
     fn click(&mut self) {
@@ -294,6 +311,71 @@ impl App {
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
         }
+    }
+}
+
+/// Drive Hocket through genet-probe's shared harness: implementing this small
+/// surface grants the scenario loop its `click` / `assert text` / `assert snap`
+/// verbs over Hocket's one cambium surface. `with_surfaces` hands the retained
+/// DOM to a visitor (the borrow guard lives only for the callback, since the DOM
+/// is behind `RefCell`); a synthetic press routes through the same
+/// `hit_test` + `dispatch_click` path a mouse takes.
+impl genet_probe::Automatable for App {
+    fn with_surfaces<R>(&self, f: impl FnOnce(&[genet_probe::ProbeSurface<'_>]) -> R) -> R {
+        let Some(runner) = self.runner.as_ref() else {
+            return f(&[]);
+        };
+        let dom = runner.dom();
+        let dom_ref = dom.borrow();
+        let (w, h) = self.layout_size;
+        let surfaces = [genet_probe::ProbeSurface {
+            name: "hocket",
+            dom: &dom_ref,
+            rect: [0.0, 0.0, w, h],
+            sheet: &self.sheet,
+        }];
+        f(&surfaces)
+    }
+
+    fn snapshot(&self) -> genet_probe::ProbeSnapshot {
+        let status = self
+            .runner
+            .as_ref()
+            .map(|runner| runner.state().project_status_label())
+            .unwrap_or_default();
+        genet_probe::ProbeSnapshot::default().with_field("status", status)
+    }
+
+    fn drain_events(&mut self) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn act(&mut self, _label: &str) -> bool {
+        false
+    }
+
+    fn press(&mut self, x: f32, y: f32) {
+        self.cursor = (x, y);
+        self.click();
+    }
+
+    fn moved(&mut self, x: f32, y: f32) {
+        self.cursor = (x, y);
+    }
+
+    fn release(&mut self, _x: f32, _y: f32) {}
+}
+
+impl genet_probe::Driveable for App {
+    fn capture(&mut self, name: &str) -> bool {
+        let Some(dir) = self.capture_dir.as_ref() else {
+            return false;
+        };
+        self.pending_capture = Some(dir.join(format!("{name}.png")));
+        if let Some(window) = self.window.as_ref() {
+            window.request_redraw();
+        }
+        true
     }
 }
 
@@ -406,6 +488,18 @@ impl ApplicationHandler<HostEvent> for App {
             if let Some(window) = self.window.as_ref() {
                 window.request_redraw();
             }
+            // Self-drive: advance one scenario step per tick, after the frame the
+            // previous tick requested. On completion, write the receipt and exit.
+            if let Some(mut run) = self.scenario.take() {
+                match run.scenario.tick(self) {
+                    genet_probe::Progress::Done => {
+                        scenario::write_done(&run.dir, &run.scenario.finish());
+                        event_loop.exit();
+                        return;
+                    }
+                    genet_probe::Progress::Running => self.scenario = Some(run),
+                }
+            }
             event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + TICK));
         }
     }
@@ -452,6 +546,8 @@ fn main() {
         let _ = proxy.send_event(HostEvent::ProjectUpdate);
     });
     let (project_worker, project_updates) = spawn_project_worker(wake);
+    let scenario_run = scenario::load();
+    let capture_dir = scenario_run.as_ref().map(|run| run.dir.clone());
     let mut app = App {
         window: None,
         host: None,
@@ -467,6 +563,9 @@ fn main() {
         a11y_route: HashMap::new(),
         project_worker: Some(project_worker),
         project_updates,
+        scenario: scenario_run,
+        capture_dir,
+        pending_capture: None,
     };
     event_loop.run_app(&mut app).expect("run app");
 }

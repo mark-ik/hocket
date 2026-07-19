@@ -2270,6 +2270,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "genet-probe"
+version = "0.1.0"
+dependencies = [
+ "genet-layout",
+ "genet-scripted-dom",
+ "layout-dom-api",
+]
+
+[[package]]
 name = "genet-scripted-dom"
 version = "0.1.0"
 dependencies = [
@@ -2664,10 +2673,12 @@ dependencies = [
  "cambium",
  "genet-clipboard",
  "genet-layout",
+ "genet-probe",
  "genet-scripted-dom",
  "genet-winit-host",
  "hocket-engine",
  "hocket-model",
+ "image",
  "layout-dom-api",
  "muniment",
  "netrender",
