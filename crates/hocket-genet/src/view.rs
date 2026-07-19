@@ -196,11 +196,23 @@ fn rail(state: &AppState) -> Child {
     } else {
         format!("{} media blob(s) unavailable", state.missing_media.len())
     };
-    let kids: Vec<Child> = vec![
+    let mut kids: Vec<Child> = vec![
         Box::new(el("div", text("the circle")).attr("class", "eyebrow")),
         peer("You", "YU", amber, you_sub, true),
         Box::new(el("div", text(session_note)).attr("class", "handoff-note")),
     ];
+    // Your contact token: a peer needs it to address a hand-off here. The rail
+    // keeps the short fingerprint visible; the full 64-char token goes to the
+    // clipboard on demand rather than cluttering the circle.
+    if state.contact_token().is_some() {
+        kids.push(Box::new(clickable(
+            el("div", text("Copy token"))
+                .attr("class", "project-command")
+                .attr("role", "button")
+                .attr("aria-label", "Copy your contact token to the clipboard"),
+            |state: &mut AppState, _| state.copy_contact_token(),
+        )));
+    }
     Box::new(el("div", kids).attr("class", "rail"))
 }
 

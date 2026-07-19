@@ -56,6 +56,20 @@ impl LocalIdentity {
             .map(|byte| format!("{byte:02x}"))
             .collect()
     }
+
+    /// The whole public key as a copyable contact token: 64 lowercase hex
+    /// characters. Unlike [`fingerprint`](Self::fingerprint), this is the full
+    /// key, so a peer can address a hand-off back to this identity. A friendlier
+    /// checksummed encoding is a later refinement; the inverse parse arrives with
+    /// the recipient-entry gesture.
+    pub fn contact_token(&self) -> String {
+        self.provider
+            .master_public_key()
+            .to_bytes()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    }
 }
 
 impl IdentityProvider for LocalIdentity {

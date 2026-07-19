@@ -23,6 +23,7 @@ use hocket_model::{
     Edit, History, Layer, MediaRef, Phrase, ProjectBundle, Session, Track, TrackColor, TrackId,
 };
 use cambium::SelectState;
+use genet_clipboard::{SystemClipboard, TextClipboard};
 
 use crate::identity::LocalIdentity;
 use crate::project_io::{ProjectCommand, ProjectUpdate};
@@ -47,6 +48,7 @@ enum ProjectStatus {
     Exported(PathBuf),
     HandedOff(PathBuf),
     HandoffReceived(String),
+    TokenCopied,
     Error(String),
 }
 
@@ -78,6 +80,10 @@ pub struct AppState {
     project_worker: ActorHandle<ProjectCommand>,
     /// Durable host identity. Its secret and unlock state never enter a project.
     identity: Result<LocalIdentity, String>,
+    /// The OS clipboard, through genet's shared service. `None` on a headless
+    /// host with no clipboard. Host-local: it carries tokens and, later, audio,
+    /// never project state.
+    clipboard: Option<SystemClipboard>,
     /// Host-local export intent. It changes only the rendered file, never the
     /// project graph or its syncable history.
     export_length: ExportLength,
@@ -149,6 +155,7 @@ impl AppState {
             project_status: ProjectStatus::Idle,
             project_worker,
             identity,
+            clipboard: SystemClipboard::new().ok(),
             export_length: ExportLength::OneCycle,
             audio_devices,
             audio_input_select: SelectState::default(),
@@ -194,6 +201,7 @@ impl AppState {
                 path.file_name().unwrap_or_default().to_string_lossy()
             ),
             ProjectStatus::HandoffReceived(sender) => format!("hand-off received from {sender}"),
+            ProjectStatus::TokenCopied => "contact token copied".to_string(),
             ProjectStatus::Error(message) => format!("project error: {message}"),
             ProjectStatus::Idle => {
                 if self.is_dirty() {
@@ -209,6 +217,33 @@ impl AppState {
         match &self.identity {
             Ok(identity) => format!("local session · {}", identity.fingerprint()),
             Err(_) => "local session · identity unavailable".to_string(),
+        }
+    }
+
+    /// The local identity's contact token (full public key as hex), if the
+    /// identity is available. A peer needs this to address a hand-off here.
+    pub fn contact_token(&self) -> Option<String> {
+        self.identity.as_ref().ok().map(LocalIdentity::contact_token)
+    }
+
+    /// Copy the contact token to the OS clipboard through genet's shared
+    /// service, reporting the outcome honestly (including an unavailable
+    /// clipboard or identity).
+    pub fn copy_contact_token(&mut self) {
+        let Some(token) = self.contact_token() else {
+            self.project_status = ProjectStatus::Error("identity unavailable".to_string());
+            return;
+        };
+        match &mut self.clipboard {
+            Some(clipboard) => match clipboard.set_text(&token) {
+                Ok(()) => self.project_status = ProjectStatus::TokenCopied,
+                Err(error) => {
+                    self.project_status = ProjectStatus::Error(format!("copy token: {error}"))
+                }
+            },
+            None => {
+                self.project_status = ProjectStatus::Error("clipboard unavailable".to_string())
+            }
         }
     }
 
