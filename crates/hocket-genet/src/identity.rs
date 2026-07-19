@@ -60,16 +60,38 @@ impl LocalIdentity {
     /// The whole public key as a copyable contact token: 64 lowercase hex
     /// characters. Unlike [`fingerprint`](Self::fingerprint), this is the full
     /// key, so a peer can address a hand-off back to this identity. A friendlier
-    /// checksummed encoding is a later refinement; the inverse parse arrives with
-    /// the recipient-entry gesture.
+    /// checksummed encoding is a later refinement.
     pub fn contact_token(&self) -> String {
-        self.provider
-            .master_public_key()
-            .to_bytes()
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect()
+        encode_contact_token(&self.provider.master_public_key())
     }
+}
+
+/// Encode a public key as a contact token: 64 lowercase hex characters.
+pub fn encode_contact_token(key: &Ed25519PublicKey) -> String {
+    key.to_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+/// Parse a contact token (as pasted, whitespace tolerated) back into a public
+/// key. Errors carry a human-facing reason, since a mistyped or truncated token
+/// is the common failure a peer needs told about.
+pub fn parse_contact_token(token: &str) -> Result<Ed25519PublicKey, String> {
+    let cleaned: String = token.chars().filter(|c| !c.is_whitespace()).collect();
+    if cleaned.len() != 64 {
+        return Err(format!(
+            "a contact token is 64 hex characters; this is {}",
+            cleaned.len()
+        ));
+    }
+    let mut bytes = [0u8; 32];
+    for (index, pair) in cleaned.as_bytes().chunks(2).enumerate() {
+        let pair = std::str::from_utf8(pair).map_err(|_| "token has invalid text".to_string())?;
+        bytes[index] = u8::from_str_radix(pair, 16)
+            .map_err(|_| "a contact token must be hexadecimal".to_string())?;
+    }
+    Ed25519PublicKey::from_bytes(&bytes).map_err(|_| "not a valid identity key".to_string())
 }
 
 impl IdentityProvider for LocalIdentity {
@@ -154,6 +176,19 @@ mod tests {
     use personae::IdentityProvider;
 
     use super::*;
+
+    #[test]
+    fn contact_token_round_trips_and_rejects_malformed() {
+        use personae::InMemoryProvider;
+        let key = InMemoryProvider::from_seed([9; 32]).master_public_key();
+        let token = encode_contact_token(&key);
+        assert_eq!(token.len(), 64);
+        assert_eq!(parse_contact_token(&token).unwrap(), key);
+        // Pasted tokens carry stray whitespace; tolerate it.
+        assert_eq!(parse_contact_token(&format!("  {token}\n")).unwrap(), key);
+        assert!(parse_contact_token("too short").is_err());
+        assert!(parse_contact_token(&"z".repeat(64)).is_err());
+    }
 
     #[test]
     fn sealed_identity_is_stable_across_reopen() {

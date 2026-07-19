@@ -38,8 +38,6 @@ pub enum ProjectCommand {
     /// Serialize an already-signed hand-off envelope and write it to `path`.
     /// The main thread builds the envelope (signing needs the private identity);
     /// the worker only pays the CBOR-over-media serialization and the file I/O.
-    // Constructed by the send gesture (hand-off UI plan, task 3), not yet wired.
-    #[allow(dead_code)]
     WriteHandoff {
         path: PathBuf,
         envelope: HandoffEnvelope,

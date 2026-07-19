@@ -24,8 +24,10 @@ use hocket_model::{
 };
 use cambium::SelectState;
 use genet_clipboard::{SystemClipboard, TextClipboard};
+use hocket_engine::handoff::HandoffEnvelope;
+use personae::Ed25519PublicKey;
 
-use crate::identity::LocalIdentity;
+use crate::identity::{LocalIdentity, parse_contact_token};
 use crate::project_io::{ProjectCommand, ProjectUpdate};
 
 /// Meter dB floor for the 0..1 level the output meters display.
@@ -49,6 +51,7 @@ enum ProjectStatus {
     HandedOff(PathBuf),
     HandoffReceived(String),
     TokenCopied,
+    RecipientSet(String),
     Error(String),
 }
 
@@ -84,6 +87,10 @@ pub struct AppState {
     /// host with no clipboard. Host-local: it carries tokens and, later, audio,
     /// never project state.
     clipboard: Option<SystemClipboard>,
+    /// The peer this session will be handed to, set by pasting their contact
+    /// token or by accepting an incoming hand-off (which addresses the reply
+    /// back to its sender). Host-local; a recipient is not project state.
+    recipient: Option<Ed25519PublicKey>,
     /// Host-local export intent. It changes only the rendered file, never the
     /// project graph or its syncable history.
     export_length: ExportLength,
@@ -156,6 +163,7 @@ impl AppState {
             project_worker,
             identity,
             clipboard: SystemClipboard::new().ok(),
+            recipient: None,
             export_length: ExportLength::OneCycle,
             audio_devices,
             audio_input_select: SelectState::default(),
@@ -202,6 +210,7 @@ impl AppState {
             ),
             ProjectStatus::HandoffReceived(sender) => format!("hand-off received from {sender}"),
             ProjectStatus::TokenCopied => "contact token copied".to_string(),
+            ProjectStatus::RecipientSet(fingerprint) => format!("handing to {fingerprint}"),
             ProjectStatus::Error(message) => format!("project error: {message}"),
             ProjectStatus::Idle => {
                 if self.is_dirty() {
@@ -244,6 +253,94 @@ impl AppState {
             None => {
                 self.project_status = ProjectStatus::Error("clipboard unavailable".to_string())
             }
+        }
+    }
+
+    /// The current recipient's short fingerprint for display, if one is set.
+    pub fn recipient_fingerprint(&self) -> Option<String> {
+        self.recipient.as_ref().map(key_fingerprint)
+    }
+
+    /// Whether a hand-off can be sent now: a recipient and a usable identity.
+    pub fn can_hand_off(&self) -> bool {
+        self.recipient.is_some() && self.identity.is_ok()
+    }
+
+    /// Read a contact token from the clipboard and set it as the hand-off
+    /// recipient. The pasted token is the peer's public key; parsing it is the
+    /// only validation the address needs.
+    pub fn paste_recipient(&mut self) {
+        let text = match &mut self.clipboard {
+            Some(clipboard) => match clipboard.get_text() {
+                Ok(text) => text,
+                Err(error) => {
+                    self.project_status = ProjectStatus::Error(format!("paste: {error}"));
+                    return;
+                }
+            },
+            None => {
+                self.project_status = ProjectStatus::Error("clipboard unavailable".to_string());
+                return;
+            }
+        };
+        match parse_contact_token(&text) {
+            Ok(key) => {
+                let fingerprint = key_fingerprint(&key);
+                self.recipient = Some(key);
+                self.project_status = ProjectStatus::RecipientSet(fingerprint);
+            }
+            Err(reason) => {
+                self.project_status = ProjectStatus::Error(format!("recipient: {reason}"));
+            }
+        }
+    }
+
+    /// Build a signed hand-off for the current recipient and write it to a
+    /// `.hocket` file the user picks. The envelope carries a complete snapshot;
+    /// the file is a cleartext transfer artifact, not an encrypted channel, so
+    /// it should travel over a carrier the peers already trust.
+    pub fn hand_off(&mut self) {
+        if self.is_project_io_active() {
+            return;
+        }
+        if self.is_recording() {
+            self.project_status =
+                ProjectStatus::Error("stop recording before handing off".to_string());
+            return;
+        }
+        let Some(recipient) = self.recipient else {
+            self.project_status = ProjectStatus::Error("paste a recipient first".to_string());
+            return;
+        };
+        let identity = match self.identity.as_ref() {
+            Ok(identity) => identity,
+            Err(_) => {
+                self.project_status = ProjectStatus::Error("identity unavailable".to_string());
+                return;
+            }
+        };
+        let bundle = ProjectBundle::new(self.session.clone(), self.history.clone());
+        let envelope = match HandoffEnvelope::create(&bundle, &self.store, recipient, identity) {
+            Ok(envelope) => envelope,
+            Err(error) => {
+                self.project_status = ProjectStatus::Error(format!("hand off: {error}"));
+                return;
+            }
+        };
+        let file_name = format!("{}.hocket", self.project_label());
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("Hocket hand-off", &["hocket"])
+            .set_file_name(file_name)
+            .save_file()
+            .map(|path| ensure_extension(path, "hocket"))
+        else {
+            return;
+        };
+        if !self
+            .project_worker
+            .command(ProjectCommand::WriteHandoff { path, envelope })
+        {
+            self.project_status = ProjectStatus::Error("project worker stopped".to_string());
         }
     }
 
@@ -980,6 +1077,16 @@ fn ensure_extension(mut path: PathBuf, extension: &str) -> PathBuf {
         path.set_extension(extension);
     }
     path
+}
+
+/// Six-byte hex fingerprint of a public key, for compact display. Matches
+/// `LocalIdentity::fingerprint`'s form so the same key reads the same anywhere.
+fn key_fingerprint(key: &Ed25519PublicKey) -> String {
+    key.to_bytes()
+        .iter()
+        .take(6)
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn audio_device_options(devices: &[hocket_engine::AudioDevice]) -> Vec<String> {

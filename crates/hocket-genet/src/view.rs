@@ -213,6 +213,32 @@ fn rail(state: &AppState) -> Child {
             |state: &mut AppState, _| state.copy_contact_token(),
         )));
     }
+    // Address a hand-off: paste a peer's token, then send. Replies are
+    // pre-addressed after accepting one, so only first contact needs a paste.
+    kids.push(Box::new(clickable(
+        el("div", text("Paste recipient"))
+            .attr("class", "project-command")
+            .attr("role", "button")
+            .attr(
+                "aria-label",
+                "Set the hand-off recipient from a token on the clipboard",
+            ),
+        |state: &mut AppState, _| state.paste_recipient(),
+    )));
+    if let Some(fingerprint) = state.recipient_fingerprint() {
+        kids.push(Box::new(
+            el("div", text(format!("handing to {fingerprint}"))).attr("class", "handoff-note"),
+        ));
+        if state.can_hand_off() {
+            kids.push(Box::new(clickable(
+                el("div", text("Hand off"))
+                    .attr("class", "project-command project-save")
+                    .attr("role", "button")
+                    .attr("aria-label", "Write a signed hand-off for the recipient"),
+                |state: &mut AppState, _| state.hand_off(),
+            )));
+        }
+    }
     Box::new(el("div", kids).attr("class", "rail"))
 }
 
