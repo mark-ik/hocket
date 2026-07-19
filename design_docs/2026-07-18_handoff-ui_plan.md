@@ -179,6 +179,16 @@ Organized by feature target and validation, not by time.
   contact-identity brief, contacts key-rooted). Hocket's token is already the
   root key, so the MVP needs no resolver, and a shared contacts capability would
   live on the persona tier if built.
+- 2026-07-18: Clipboard analysed as a cross-app capability, not a Hocket
+  detail. genet already carries a text-only clipboard seam from its Servo
+  lineage (`EmbedderMsg` Get/Set/ClearClipboardText) backed by arboard in the
+  pelt-desktop port, but cambium app hosts like hocket-genet bypass the
+  embedder and have no clipboard path. The robust answer is a shared genet
+  clipboard service on the web `ClipboardItem` model, scoped in genet's
+  `docs/2026-07-18_clipboard_capability_plan.md`. Interim for this plan:
+  hocket-genet may call arboard for text directly (copy token, paste recipient)
+  and migrate onto the shared service at its P0/P1. arboard is MIT/Apache and
+  already in the family (genet), so this extends a blessed dependency.
 - 2026-07-18: **Task 1 landed (carrier round-trip).** `ProjectCommand` gained
   `WriteHandoff`/`ReadHandoff` and `ProjectUpdate` gained
   `HandoffWritten`/`HandoffReceived`, served by the existing project worker: the
