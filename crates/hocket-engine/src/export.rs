@@ -172,6 +172,56 @@ pub fn write_stereo_wav(path: impl AsRef<Path>, mix: &RenderedMix) -> Result<(),
     Ok(())
 }
 
+/// Encode the stereo WAV to bytes in memory (the clipboard form of the file
+/// [`write_stereo_wav`] writes): 32-bit float stereo, the mono mix duplicated to
+/// L/R. This is what "copy audio" places on the clipboard.
+pub fn encode_stereo_wav_bytes(mix: &RenderedMix) -> Result<Vec<u8>, ExportError> {
+    let spec = hound::WavSpec {
+        channels: 2,
+        sample_rate: mix.sample_rate,
+        bits_per_sample: 32,
+        sample_format: hound::SampleFormat::Float,
+    };
+    let mut buffer = std::io::Cursor::new(Vec::new());
+    {
+        let mut writer = hound::WavWriter::new(&mut buffer, spec)?;
+        for sample in &mix.samples {
+            let sample = sample.clamp(-1.0, 1.0);
+            writer.write_sample(sample)?;
+            writer.write_sample(sample)?;
+        }
+        writer.finalize()?;
+    }
+    Ok(buffer.into_inner())
+}
+
+/// Decode a WAV (any channel count, float or integer) into a mono mix, for
+/// pasting audio in as a layer. Interleaved channels are averaged to mono,
+/// matching Hocket's mono capture.
+pub fn decode_wav_bytes(bytes: &[u8]) -> Result<RenderedMix, ExportError> {
+    let mut reader = hound::WavReader::new(std::io::Cursor::new(bytes))?;
+    let spec = reader.spec();
+    let channels = (spec.channels as usize).max(1);
+    let interleaved: Vec<f32> = match spec.sample_format {
+        hound::SampleFormat::Float => reader.samples::<f32>().collect::<Result<_, _>>()?,
+        hound::SampleFormat::Int => {
+            let scale = 1.0 / (1u64 << (spec.bits_per_sample - 1)) as f32;
+            reader
+                .samples::<i32>()
+                .map(|sample| sample.map(|value| value as f32 * scale))
+                .collect::<Result<_, _>>()?
+        }
+    };
+    let samples: Vec<f32> = interleaved
+        .chunks(channels)
+        .map(|frame| frame.iter().sum::<f32>() / channels as f32)
+        .collect();
+    Ok(RenderedMix {
+        sample_rate: spec.sample_rate,
+        samples,
+    })
+}
+
 pub(crate) struct Source<'a> {
     pub(crate) samples: &'a [f32],
     pub(crate) gain: f32,
@@ -276,6 +326,24 @@ mod tests {
     use super::*;
     use crate::media::InMemoryStore;
     use hocket_model::{Edit, History, Layer, Phrase, Session};
+
+    #[test]
+    fn wav_bytes_round_trip_preserves_mono_samples() {
+        let mix = RenderedMix {
+            sample_rate: 48_000,
+            samples: vec![0.0, 0.25, -0.5, 0.75, -1.0],
+        };
+        let bytes = encode_stereo_wav_bytes(&mix).unwrap();
+        let decoded = decode_wav_bytes(&bytes).unwrap();
+
+        assert_eq!(decoded.sample_rate, 48_000);
+        // Encode duplicates the mono mix to L/R; decode averages L/R back to
+        // mono, so the round trip is an identity on the samples.
+        assert_eq!(decoded.samples.len(), mix.samples.len());
+        for (before, after) in mix.samples.iter().zip(&decoded.samples) {
+            assert!((before - after).abs() < 1e-6, "{before} vs {after}");
+        }
+    }
 
     fn append_layer(
         session: &mut Session,

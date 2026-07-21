@@ -23,7 +23,7 @@ use hocket_model::{
     Edit, History, Layer, MediaRef, Phrase, ProjectBundle, Session, Track, TrackColor, TrackId,
 };
 use cambium::SelectState;
-use genet_clipboard::{SystemClipboard, TextClipboard};
+use genet_clipboard::{Clipboard, ClipboardItem, SystemClipboard, TextClipboard};
 use hocket_engine::handoff::{HandoffEnvelope, ReceivedHandoff};
 use personae::{Ed25519PublicKey, IdentityProvider};
 
@@ -53,6 +53,8 @@ enum ProjectStatus {
     TokenCopied,
     RecipientSet(String),
     HandoffAccepted,
+    AudioCopied,
+    AudioPasted,
     Error(String),
 }
 
@@ -217,6 +219,8 @@ impl AppState {
             ProjectStatus::TokenCopied => "contact token copied".to_string(),
             ProjectStatus::RecipientSet(fingerprint) => format!("handing to {fingerprint}"),
             ProjectStatus::HandoffAccepted => "hand-off accepted".to_string(),
+            ProjectStatus::AudioCopied => "loop audio copied".to_string(),
+            ProjectStatus::AudioPasted => "audio pasted as a layer".to_string(),
             ProjectStatus::Error(message) => format!("project error: {message}"),
             ProjectStatus::Idle => {
                 if self.is_dirty() {
@@ -260,6 +264,115 @@ impl AppState {
                 self.project_status = ProjectStatus::Error("clipboard unavailable".to_string())
             }
         }
+    }
+
+    /// Render the current loop mix and place it on the clipboard as `audio/wav`
+    /// (plus a plain-text label), so it can be pasted into another Hocket or a
+    /// MIME-aware app. Universal DAW paste wants a platform-native audio format,
+    /// a later refinement; this is the multi-format clipboard's audio lane.
+    pub fn copy_audio(&mut self) {
+        if self.is_recording() {
+            self.project_status =
+                ProjectStatus::Error("stop recording before copying audio".to_string());
+            return;
+        }
+        let mix = match hocket_engine::export::render_mix(
+            &self.session,
+            &self.store,
+            &self.solo,
+            self.export_length,
+        ) {
+            Ok(mix) => mix,
+            Err(error) => {
+                self.project_status = ProjectStatus::Error(format!("copy audio: {error}"));
+                return;
+            }
+        };
+        let bytes = match hocket_engine::export::encode_stereo_wav_bytes(&mix) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                self.project_status = ProjectStatus::Error(format!("copy audio: {error}"));
+                return;
+            }
+        };
+        let label = format!("{} loop", self.project_label());
+        let item = ClipboardItem::new()
+            .with_custom("audio/wav", bytes)
+            .with_text(label);
+        match &mut self.clipboard {
+            Some(clipboard) => match clipboard.write(&item) {
+                Ok(()) => self.project_status = ProjectStatus::AudioCopied,
+                Err(error) => {
+                    self.project_status = ProjectStatus::Error(format!("copy audio: {error}"))
+                }
+            },
+            None => {
+                self.project_status = ProjectStatus::Error("clipboard unavailable".to_string())
+            }
+        }
+    }
+
+    /// Read `audio/wav` from the clipboard, decode it, and append it as a new
+    /// layer on the armed track (the paste counterpart of a capture).
+    pub fn paste_audio(&mut self) {
+        if self.is_recording() {
+            self.project_status =
+                ProjectStatus::Error("stop recording before pasting audio".to_string());
+            return;
+        }
+        let Some(track_idx) = self.armed_index() else {
+            self.project_status =
+                ProjectStatus::Error("arm a track to paste audio into".to_string());
+            return;
+        };
+        let bytes = match &mut self.clipboard {
+            Some(clipboard) => match clipboard.read_format("audio/wav") {
+                Ok(bytes) => bytes,
+                Err(_) => {
+                    self.project_status =
+                        ProjectStatus::Error("no audio on the clipboard".to_string());
+                    return;
+                }
+            },
+            None => {
+                self.project_status = ProjectStatus::Error("clipboard unavailable".to_string());
+                return;
+            }
+        };
+        let mix = match hocket_engine::export::decode_wav_bytes(&bytes) {
+            Ok(mix) => mix,
+            Err(error) => {
+                self.project_status = ProjectStatus::Error(format!("paste audio: {error}"));
+                return;
+            }
+        };
+        if mix.samples.is_empty() {
+            self.project_status = ProjectStatus::Error("pasted audio is empty".to_string());
+            return;
+        }
+        let media = self.store.put(&mix.samples, mix.sample_rate);
+        let phrase = Phrase::new(
+            media,
+            self.session.bars_per_phrase,
+            self.session.bpm,
+            Self::now_ms(),
+        );
+        let layer = Layer::new(phrase.id);
+        let track_id = self.session.tracks[track_idx].id;
+        let layer_index = self.session.tracks[track_idx].layers.len() as u16;
+        self.history.commit(
+            Edit::AppendLayer {
+                track_id,
+                phrase,
+                layer,
+            },
+            &mut self.session,
+            Self::now_ms(),
+        );
+        if self.track_is_audible(track_idx) {
+            self.play_layer_from_store(track_idx, layer_index as usize);
+        }
+        self.project_status = ProjectStatus::AudioPasted;
     }
 
     /// The current recipient's short fingerprint for display, if one is set.

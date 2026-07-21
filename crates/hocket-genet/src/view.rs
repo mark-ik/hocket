@@ -98,6 +98,23 @@ fn top(state: &AppState) -> Child {
                         .attr("aria-label", "Export current loop mix as WAV"),
                     |state: &mut AppState, _| state.choose_mix_export(),
                 ),
+                clickable(
+                    el("div", text("Copy audio"))
+                        .attr("class", "project-command")
+                        .attr("role", "button")
+                        .attr("aria-label", "Copy the loop mix to the clipboard as audio"),
+                    |state: &mut AppState, _| state.copy_audio(),
+                ),
+                clickable(
+                    el("div", text("Paste audio"))
+                        .attr("class", "project-command")
+                        .attr("role", "button")
+                        .attr(
+                            "aria-label",
+                            "Paste clipboard audio as a new layer on the armed track",
+                        ),
+                    |state: &mut AppState, _| state.paste_audio(),
+                ),
             ),
         )
         .attr("class", "top"),
