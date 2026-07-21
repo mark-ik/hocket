@@ -36,7 +36,7 @@ audio-primitives = { path = "../woodshed/crates/audio-primitives", version = "0.
 
 # Portable durable-byte seam shared with Woodshed and Isometry. Hocket keeps
 # its own model and MediaRef identity; muniment owns backend mechanics.
-muniment = { path = "../muniment", version = "0.1.0", default-features = false }
+muniment = { path = "../eidetic/crates/muniment", version = "0.1.0", default-features = false }
 armillary = { path = "../armillary", version = "0.1.0" }
 # Identity root for signed, recipient-bound hand-off envelopes. This is a
 # host-agnostic protocol dependency, not project/session state.
