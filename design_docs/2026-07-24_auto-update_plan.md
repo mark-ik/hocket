@@ -204,7 +204,13 @@ start, but its editor can come with the broader settings work.
   `uninstall.exe`; the acceptance feed is `%LOCALAPPDATA%\merely\hocket-feed`;
   the release keypair is `%LOCALAPPDATA%\merely\release-keys\hocket.key`
   (**private key never entered a repo** — back it up somewhere durable, it
-  is what future updates must be signed with).
+  is what future updates must be signed with). The Linux box and the Mac
+  each hold their own acceptance keypair under
+  `~/.local/share/merely/release-keys` with a feed beside it, plus an
+  installed build (`~/hocket-test/hocket.AppImage`, `~/Applications/Hocket.app`).
+  **Three keys is a test artefact, not the release posture**: a real release
+  is signed once, in one place, because a client trusts exactly one public
+  key. Copying the private key between machines was deliberately avoided.
 
 - 2026-07-24: **H3 status chip verified headed**, via a new
   `scenarios/update_status.scn` driven against the *installed* build (a dev
@@ -241,6 +247,20 @@ start, but its editor can come with the broader settings work.
   macOS prints `applied` because it swaps the bundle and returns, where
   Windows exits into its installer and never gets to print it. Both are
   honest; neither needed a special case.
+- 2026-07-24: **Linux leg GREEN — H4 complete on all three hosts.** A real
+  AppImage on Fedora 44 rewrote itself in place through a signed feed:
+  `hocket 0.1.0 → Checking → Downloading 0.2.0 → applied → hocket 0.2.0`.
+  Three platforms, three genuinely different install mechanics (NSIS
+  installer, `.app` bundle swap, AppImage overwrite), one policy layer and
+  one status vocabulary above them — which was the whole point of the
+  transport seam.
+
+  | Host | Format | Result |
+  | --- | --- | --- |
+  | Windows 11 | NSIS `-setup.exe` | 0.1.0 → 0.2.0, plus tamper refused, up-to-date, notify-only |
+  | macOS 15.7.7 (Intel) | `.app` + `.app.tar.gz` | 0.1.0 → 0.2.0 |
+  | Fedora 44 | `.AppImage` | 0.1.0 → 0.2.0 |
+
 - 2026-07-24 **cross-platform findings**, most of which only a machine
   *without* a dev checkout could produce:
   1. **hocket did not build on a clean checkout at all.** We git-dep
