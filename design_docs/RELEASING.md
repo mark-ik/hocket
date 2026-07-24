@@ -46,6 +46,31 @@ luggage-manifest --artifact <feed>/hocket-genet_<ver>_x64-setup.exe \
 into an existing `luggage.json` when the version matches — so the Mac and
 Linux entries can be added later without redoing the Windows one.
 
+### Per-host artifact shapes
+
+What luggage downloads is not always what `cargo packager` emits:
+
+| Host | Pack format | Artifact the manifest points at |
+| --- | --- | --- |
+| Windows | `nsis` | the `…-setup.exe` as packed |
+| Linux | `appimage` | the `.AppImage` itself (luggage writes the downloaded bytes straight over the running AppImage) |
+| macOS | `app` | a **gzipped tar of the `.app`**, which must be made and signed separately |
+
+macOS needs the extra step because `cargo packager --formats app` produces
+only the bundle, while luggage's macOS install path gunzips and untars (and
+a tarball is what preserves the bundle's structure and permissions):
+
+```sh
+cargo packager -p hocket-genet --release --formats app
+cd target/release
+tar czf Hocket.app.tar.gz Hocket.app
+cargo packager signer sign --private-key-path <hocket.key> Hocket.app.tar.gz
+luggage-manifest --artifact Hocket.app.tar.gz --version <ver> --format app
+```
+
+Sign the **tarball**, not the bundle: the signature must cover the bytes
+that are actually downloaded.
+
 For a directory feed the default `file://` URL is right. For a published
 feed pass `--url` with the URL the artifact will actually live at (for a
 GitHub release, `https://github.com/<owner>/<repo>/releases/download/v<ver>/<file>`),
