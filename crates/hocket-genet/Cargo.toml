@@ -16,6 +16,11 @@ identifier = "com.merely.hocket"
 description = "A loop recorder that passes the mic."
 authors = ["Mark <sgt.mark3@gmail.com>"]
 publisher = "Merely"
+# Required by AppImage (it refuses to pack without a square icon) and used
+# for the macOS bundle and the Windows installer. The mark is the brand's
+# open loop closed by its period; generated at 512 square from the theme's
+# ground and amber.
+icons = ["icons/icon.png"]
 # Formats are chosen per host at pack time (`--formats nsis`, `app`,
 # `appimage`); listing them here would build all of them everywhere.
 #
