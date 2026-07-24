@@ -70,12 +70,17 @@ winit = "0.30"
 # mirrors Woodshed's Genet section. Git deps on the owned repos; local
 # checkouts ride the gitignored .cargo/config.toml source-specific [patch].
 # Build hocket-genet from the hocket cwd so that patch applies.
-# Track upstream-current (2026-07-24). The old 0.2.0/0.1.0 pins no longer
-# matched the local genet checkout, so the [patch] entries silently went
-# unused and the published pair dragged a SECOND `paint_list_api` into the
-# graph — two incompatible `PaintCmd` types, not an obvious version error.
-cambium = "0.3.0"
-sprigging = "0.2.0"
+# From genet's git, NOT crates.io. The published pair depends on the
+# crates.io `paint_list_api`, while we (and the rest of the genet stack)
+# git-dep netrender's — two `paint_list_api` crates in one graph, so a
+# `sprigging::PaintCmd` is not a `paint_list_api::PaintCmd` and `leaves.rs`
+# fails to compile. `[patch.crates-io]` does NOT resolve this; taking them
+# from the same source everything else uses does. Found 2026-07-24 on a
+# clean checkout (the Linux box), which is the only place it shows: a dev
+# machine's gitignored patch file redirects these to local checkouts that
+# git-dep netrender, unifying the graph by accident.
+cambium = { git = "https://github.com/mark-ik/genet.git", branch = "main" }
+sprigging = { git = "https://github.com/mark-ik/genet.git", branch = "main" }
 layout-dom-api = { git = "https://github.com/mark-ik/genet.git", branch = "main", version = "=0.1.0" }
 genet-scripted-dom = { git = "https://github.com/mark-ik/genet.git", branch = "main", version = "=0.1.0" }
 genet-layout = { git = "https://github.com/mark-ik/genet.git", branch = "main" }
@@ -135,18 +140,10 @@ tokio = { version = "1.50", features = ["rt", "rt-multi-thread", "time", "sync"]
 [patch.crates-io]
 layout-dom-api = { git = "https://github.com/mark-ik/genet.git", branch = "main", version = "=0.1.0" }
 genet-scripted-dom = { git = "https://github.com/mark-ik/genet.git", branch = "main", version = "=0.1.0" }
-# The netrender family MUST be patched here, or a clean checkout does not
-# build (found 2026-07-24 on the Linux box, which has no local patch file).
-# We git-dep these from netrender, while the PUBLISHED cambium/sprigging
-# depend on their crates.io copies — two `paint_list_api` crates in one
-# graph, so a `sprigging::PaintCmd` is not a `paint_list_api::PaintCmd` and
-# `leaves.rs` fails to compile. It looks like a code bug and is a
-# dependency-source split. A dev machine hides this: the gitignored
-# `.cargo/config.toml` redirects cambium/sprigging to local checkouts, which
-# git-dep netrender themselves and so unify by accident.
-netrender = { git = "https://github.com/mark-ik/netrender.git", branch = "main" }
-paint_list_api = { git = "https://github.com/mark-ik/netrender.git", branch = "main" }
-paint_list_render = { git = "https://github.com/mark-ik/netrender.git", branch = "main" }
+# Deliberately NO netrender patches here: `[patch.crates-io]` does not
+# redirect a published crate's own registry dependency (tried 2026-07-24 —
+# the crates.io `paint_list_api` stayed in the graph). Taking cambium and
+# sprigging from genet's git instead is what unifies the source.
 # NO stylo/stylo_atoms patch (removed 2026-07-12, mirroring genet): the fork
 # is now the RENAMED `genet-stylo` family, and a `[patch]` cannot rename its
 # target. Genet's crates git-dep genet-stylo by package rename instead, so no
