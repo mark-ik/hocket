@@ -30,6 +30,18 @@ pub fn sheet() -> String {
 .session-name { color: var(--text-dim); font-size: 13px; padding-left: 14px; }
 .project-status { color: var(--text-faint); font-size: 11px; padding-left: 10px; max-width: 220px;
                   overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* Update status. Sits beside the project status and must read as an aside,
+   not a headline: without its own rule it inherits the default size and
+   shouts over the session name it abuts. Amber because it is actionable
+   information rather than a fault. Wide enough that the common
+   "Version x.y.z available" fits whole; longer failure text still
+   ellipsizes, and `--update-now` prints it in full. */
+   `flex-shrink: 0` is what actually keeps it whole: in this flex row a
+   default-shrink item gets squeezed and ellipsises mid-word regardless of
+   max-width. The cap still bounds a long failure message. */
+.update-status { color: var(--voice-amber); font-size: 11px; padding-left: 16px;
+                 flex-shrink: 0; max-width: 330px; overflow: hidden;
+                 white-space: nowrap; text-overflow: ellipsis; }
 .top-spacer { flex-grow: 1; }
 .chip { background-color: var(--surface); border: 1px solid var(--line-soft); color: var(--text-dim);
         font-size: 12px; padding: 5px 11px; border-radius: 14px; margin-right: 12px; }

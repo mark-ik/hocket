@@ -206,6 +206,34 @@ start, but its editor can come with the broader settings work.
   (**private key never entered a repo** — back it up somewhere durable, it
   is what future updates must be signed with).
 
+- 2026-07-24: **H3 status chip verified headed**, via a new
+  `scenarios/update_status.scn` driven against the *installed* build (a dev
+  binary honestly reports itself un-updatable, so it cannot show this
+  state). Receipt: `Code/testing/hocket/01_update_available.png` — the top
+  bar reads "Version 0.3.0 available" in amber beside the session name.
+  Three defects came out of looking at the whole captured frame rather than
+  trusting the pass:
+  1. The chip had **no style rule at all**, so it inherited the default
+     size and shouted over the neighbouring session label, colliding with
+     it ("new sessionVersion 0.3.0 available"). Added `.update-status`.
+  2. The scenario asserted `text available`, which **also matches "Updates
+     unavailable"** — it passed on precisely the wrong state. Now asserts
+     `Version` and the expected version string.
+  3. `Unsupported` in the chip pushed the toolbar onto two lines, and it is
+     the *normal* state for dev builds and package-managed installs, so the
+     chip is now silent for it (as it already was for Idle/UpToDate/
+     Disabled). `--update-now` still reports it in full when asked.
+- 2026-07-24 **security finding: the signature covers the artifact, not the
+  manifest.** Demonstrated: a manifest claiming 0.3.0 while serving the
+  genuinely-signed 0.2.0 artifact is accepted, since digest and signature
+  both check out against the bytes served. So a feed controller *without*
+  the key cannot ship arbitrary code (modified bytes are refused) but can
+  lie about the version and replay any previously-signed artifact — a
+  downgrade attack. Inherited from upstream; recorded in luggage's README
+  and mere's brief. The fix (signing the manifest) belongs with T3's
+  monotonic-version + signed-timestamp work, which this promotes from
+  nicety to requirement.
+
 ### Next
 
 - **H3 remainder: the actions.** The status is visible but not yet

@@ -55,16 +55,25 @@ pub fn root(state: &AppState) -> Child {
 
 /// The update state, shown only when there is something true to say.
 ///
-/// `Idle` (never checked this run) and `UpToDate` are deliberately silent:
-/// a chip that always shows something trains the eye to ignore it, and the
-/// point of this indicator is that when it speaks, it is reporting a state the
-/// app is genuinely in.
+/// Silent for every state the user cannot act on and is not waiting for:
+/// `Idle`, `UpToDate`, `Disabled`, and `Unsupported`. A chip that always
+/// shows something trains the eye to ignore it, and the point of this
+/// indicator is that when it speaks, it is reporting a state the app is
+/// genuinely in and the user might do something about.
+///
+/// `Unsupported` is silent because it is the *normal* state for a dev build
+/// and for a package-managed install — a permanent "updates unavailable"
+/// banner in the toolbar is noise, and a long one crowds the controls onto
+/// two lines. `--update-now` still reports it in full when asked.
 fn update_status_chip(state: &AppState) -> Child {
     use crate::update::UpdateStatus;
     let status = state.update_status();
     let worth_showing = !matches!(
         status,
-        UpdateStatus::Idle | UpdateStatus::UpToDate { .. } | UpdateStatus::Disabled
+        UpdateStatus::Idle
+            | UpdateStatus::UpToDate { .. }
+            | UpdateStatus::Disabled
+            | UpdateStatus::Unsupported(_)
     );
     if !worth_showing {
         return Box::new(el("span", ()));
