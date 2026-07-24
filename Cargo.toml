@@ -95,9 +95,12 @@ wgpu = { version = "29", default-features = false, features = ["std"] }
 # consolidation.
 tinct = { git = "https://github.com/mark-ik/genet.git", branch = "main" }
 
-# Auto-update (2026-07-24 auto-update plan). Velopack is the family's desktop
-# update transport: one mechanism for Windows, macOS, and Linux. The crate is
-# the runtime half; releases are packed with the matching `vpk` CLI.
+# Auto-update (2026-07-24 auto-update plan). Luggage is the family's update
+# pipeline (the cargo-packager-updater fork living in mere; ruled 2026-07-24):
+# signed manifests over pluggable feeds, packed with upstream's cargo-packager
+# CLI, Rust everywhere. Velopack stays wired as the A/B alternative
+# (HOCKET_UPDATE_TRANSPORT=velopack) until one of the two retires.
+luggage = { git = "https://github.com/mark-ik/mere.git", branch = "main" }
 velopack = "1.2.0"
 
 # Audio I/O + DSP

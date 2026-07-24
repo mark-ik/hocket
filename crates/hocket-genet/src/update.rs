@@ -16,10 +16,14 @@
 //!   system can actually be in, including why a failure failed. Nothing here
 //!   reports motion that is not happening.
 
+pub mod luggage_transport;
 pub mod velopack_transport;
 pub mod worker;
 
 use std::fmt;
+
+/// Environment variable naming the release feed, shared by every transport.
+pub const FEED_ENV: &str = "HOCKET_UPDATE_FEED";
 
 /// How much the app may do on its own.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -289,6 +293,29 @@ pub trait UpdateTransport: Send {
 
     /// Apply what is staged and restart.
     fn apply_and_restart(&self) -> Result<(), String>;
+}
+
+/// Boxed transports delegate, so the host can pick one at runtime.
+impl UpdateTransport for Box<dyn UpdateTransport> {
+    fn availability(&self) -> Result<(), Unsupported> {
+        (**self).availability()
+    }
+
+    fn current_version(&self) -> String {
+        (**self).current_version()
+    }
+
+    fn check(&self, channel: UpdateChannel) -> Result<CheckOutcome, String> {
+        (**self).check(channel)
+    }
+
+    fn download(&self, version: &str) -> Result<(), String> {
+        (**self).download(version)
+    }
+
+    fn apply_and_restart(&self) -> Result<(), String> {
+        (**self).apply_and_restart()
+    }
 }
 
 #[cfg(test)]

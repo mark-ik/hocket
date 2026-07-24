@@ -569,8 +569,15 @@ fn main() {
     let (project_worker, project_updates) = spawn_project_worker(wake.clone());
 
     // The updater is I/O, so it lives off the UI thread like project work.
-    let (update_worker, update_statuses) =
-        update::worker::spawn_update_worker(wake, update::velopack_transport::VelopackTransport::new());
+    // Luggage (the family's Rust-native pipeline) is the default transport;
+    // HOCKET_UPDATE_TRANSPORT=velopack keeps the A/B alternative selectable
+    // until one of them retires.
+    let transport: Box<dyn update::UpdateTransport> =
+        match std::env::var("HOCKET_UPDATE_TRANSPORT").as_deref() {
+            Ok("velopack") => Box::new(update::velopack_transport::VelopackTransport::new()),
+            _ => Box::new(update::luggage_transport::LuggageTransport::new()),
+        };
+    let (update_worker, update_statuses) = update::worker::spawn_update_worker(wake, transport);
     let update_settings = update::UpdateSettings::default();
     if update_settings.policy.checks() {
         update_worker.command(update::worker::UpdateCommand::Check {

@@ -18,10 +18,7 @@ use std::path::Path;
 
 use velopack::{UpdateCheck, UpdateManager, sources};
 
-use super::{CheckOutcome, UpdateChannel, UpdateTransport, Unsupported};
-
-/// Environment variable naming the release feed.
-pub const FEED_ENV: &str = "HOCKET_UPDATE_FEED";
+use super::{CheckOutcome, FEED_ENV, UpdateChannel, UpdateTransport, Unsupported};
 
 /// Velopack-backed transport.
 pub struct VelopackTransport {

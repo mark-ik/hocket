@@ -124,22 +124,52 @@ start, but its editor can come with the broader settings work.
   `update_worker` handle is load-bearing (dropping it ends the actor), which
   is now documented where it is held.
 
+- 2026-07-24 **direction change (Mark): a Rust-native pipeline, no .NET
+  anywhere.** Velopack's runtime is Rust but its packer needs a .NET
+  runtime on the build machine. Ruled: fork `cargo-packager-updater` as
+  **luggage**, homed in **mere** (`crates/system/luggage`); packing uses
+  upstream's `cargo-packager` CLI (`cargo install`able, pure Rust).
+  Luggage T1 landed same day: pluggable feeds (HTTP with upstream
+  templating, local **directory** holding `luggage.json`, and
+  **github:owner/repo** resolving to the latest release's manifest asset),
+  plus an optional per-platform **BLAKE3** digest verified before the
+  minisign signature — the content-addressing seam for the planned P2P
+  distribution lane (iroh-blobs chunk dedup as implicit delta), carried in
+  the manifest from day one. 19 luggage tests green in mere, including
+  in-process minisign signing, digest mismatch, and tampered-bytes cases.
+- 2026-07-24: **`LuggageTransport` is Hocket's default transport**
+  (`update/luggage_transport.rs`), with Velopack selectable via
+  `HOCKET_UPDATE_TRANSPORT=velopack` for the A/B until one retires.
+  Config: `HOCKET_UPDATE_FEED` (any `Feed::parse` form) +
+  `HOCKET_UPDATE_PUBKEY` (minisign; refusing to run unsigned keeps
+  "signed" a fact, not an option). Dev-build detection is a
+  target-dir-path heuristic, honestly documented as such. check/download/
+  apply map onto luggage with staged bytes held between download and
+  restart, and a version-drift refusal if the feed moves between deciding
+  and fetching. 40 bin tests green.
+- CROSS-REPO: hocket's committed manifest takes luggage from mere's GitHub
+  main, which does not carry it until mere is pushed; the gitignored
+  `.cargo/config.toml` patch supplies the sibling checkout meanwhile (the
+  same posture as the personae fold).
+
 ### Next
 
 - **H3 remainder: the actions.** The status is visible but not yet
   actionable. `AppState` needs the worker handle threaded through
   `new`/`from_project_parts` to offer "Check now", "Download", and "Restart
   to finish". Deferred deliberately rather than bolted on with a setter.
-- **H4: the real cycle on hocket.** The Velopack mechanism itself is already
-  proven end to end (a real v0.1 -> v0.2 install-and-update, recorded in
-  mere's brief); what is unproven is Hocket's own packaging. Recipe:
-  `cargo build --release -p hocket-genet`, stage the exe in a clean dir,
-  `vpk pack -u Hocket -v <ver> -p <stage> -e hocket-genet.exe -o <feed>`,
-  install the Setup, then run with `HOCKET_UPDATE_FEED=<feed>` and pack a
-  higher version. `vpk` runs from the extracted nupkg against the .NET 8
-  runtime; no SDK needed.
-- **Everywhere:** Linux over SSH next (same crate, Velopack's Linux target),
-  then macOS, which needs Mark at the keyboard. The policy/status layer is
-  platform-neutral by construction, so what varies per host is only the
-  packaging step.
-- **H5: signing** still open (Authenticode vs layered ed25519).
+- **H4: the real cycle on hocket, luggage-first.** Pack with upstream
+  `cargo-packager` (NSIS on Windows), generate `luggage.json` (version,
+  per-platform url/signature/blake3; sign with `cargo-packager`'s minisign
+  signing or `rsign2`), point `HOCKET_UPDATE_FEED` at the feed dir, and run
+  v0.1 -> v0.2. Then Linux over SSH (AppImage), then macOS (`.app.tar.gz`;
+  rustup/cargo approved for the Mac, and no .NET needed anymore).
+- **T2 (luggage): staged-swap apply mechanics** replacing
+  installer-over-yourself, Velopack-grade, portable Rust.
+- **T3 (luggage): the P2P lane** — signed manifests + artifacts as
+  content-addressed blobs over iroh-blobs (mere-transport's BlobStore
+  exists); retinue carries manifest announcements, IP lanes carry bytes.
+- **H5: signing** — artifact authenticity is now solved (minisign is
+  built into the pipeline). Remaining is OS install trust: Developer ID +
+  notarization on the Mac (credentials exist; no signing cert installed in
+  its keychain yet), Authenticode-or-not on Windows.
