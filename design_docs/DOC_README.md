@@ -53,6 +53,20 @@ before any other doc in this directory.
   incoming staging and review in the circle, and same-session or new-session
   acceptance. Cleartext carrier, stated honestly; encryption and a network
   carrier are later.
+- [2026-07-24_auto-update_plan.md](2026-07-24_auto-update_plan.md)
+  - **H1-H4 (Windows) LANDED.** Configurable auto-update: a platform-neutral
+  policy/status layer (four real policies, a status variant per real state,
+  no placebo spinner) over an `UpdateTransport` seam, driven by an armillary
+  worker off the UI thread. Default transport is **luggage** (mere's
+  `cargo-packager-updater` fork); Velopack stays selectable as the A/B.
+  Proven end to end on Windows: an installed 0.1.0 updated itself to 0.2.0
+  through a signed feed, and a tampered artifact was refused. macOS and
+  Linux legs remain, plus the in-app action buttons and OS install-trust
+  signing.
+- [RELEASING.md](RELEASING.md)
+  - How to cut a Hocket release: `cargo-packager` + `luggage-manifest`, the
+  signing key, per-host formats, and the two silent packaging traps that
+  will otherwise ship a mislabelled binary.
 - [2026-07-10_history-branches_plan.md](2026-07-10_history-branches_plan.md)
   - **LANDED.** Retained history branches, cross-branch checkout, and validated
   same-root graph integration; conflicting-edit reconciliation remains open.

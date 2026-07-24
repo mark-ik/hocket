@@ -1,11 +1,32 @@
 [package]
 name = "hocket-genet"
-version = "0.1.0"
+version = "0.2.0"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
 description = "Hocket's genet desktop host: winit window + netrender present over the genet view layer. Genet-host refactor S0+."
+
+# Packaging (2026-07-24 auto-update plan). `cargo packager` builds the
+# installers luggage then updates from: NSIS on Windows, .app on macOS,
+# AppImage on Linux. Pure Rust toolchain, no .NET.
+[package.metadata.packager]
+product-name = "Hocket"
+identifier = "com.merely.hocket"
+description = "A loop recorder that passes the mic."
+authors = ["Mark <sgt.mark3@gmail.com>"]
+publisher = "Merely"
+# Formats are chosen per host at pack time (`--formats nsis`, `app`,
+# `appimage`); listing them here would build all of them everywhere.
+#
+# `cargo packager` PACKAGES binaries, it does not build them: `--release`
+# only tells it where to look. Worse, `cargo build` does NOT rebuild when
+# only the version in Cargo.toml changed (it needs a source change), so a
+# bump-then-pack yields an installer LABELLED with the new version whose
+# binary still reports the old one through `env!("CARGO_PKG_VERSION")` — a
+# silent mismatch, caught in the 2026-07-24 H4 run. The clean forces the
+# rebuild; it costs one crate's compile, not the dependency tree's.
+before-packaging-command = "cargo clean -p hocket-genet --release && cargo build --release -p hocket-genet"
 
 [dependencies]
 # AccessKit tree/action types for the a11y bridge (genet_winit_host::AccessKitBridge).

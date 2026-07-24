@@ -552,11 +552,31 @@ impl ApplicationHandler<HostEvent> for App {
     }
 }
 
+/// The update transport this run uses.
+///
+/// Luggage (the family's Rust-native pipeline) is the default;
+/// `HOCKET_UPDATE_TRANSPORT=velopack` keeps the A/B alternative selectable
+/// until one of them retires.
+fn build_transport() -> Box<dyn update::UpdateTransport> {
+    match std::env::var("HOCKET_UPDATE_TRANSPORT").as_deref() {
+        Ok("velopack") => Box::new(update::velopack_transport::VelopackTransport::new()),
+        _ => Box::new(update::luggage_transport::LuggageTransport::new()),
+    }
+}
+
 fn main() {
     // FIRST, before anything else: Velopack hooks install/update/uninstall
     // lifecycle events here and may restart or exit the process. Opening a
     // window or an audio device ahead of it would leak both.
     velopack::VelopackApp::build().run();
+
+    // `--update-now` runs the update flow in the terminal and exits, so an
+    // update cycle can be proven (and scripted) without clicking through a
+    // GUI. Same policy the app uses.
+    if std::env::args().any(|arg| arg == "--update-now") {
+        let code = update::cli::run_update_now(build_transport(), update::UpdateSettings::from_env());
+        std::process::exit(code);
+    }
 
     let event_loop = EventLoop::<HostEvent>::with_user_event()
         .build()
@@ -569,16 +589,9 @@ fn main() {
     let (project_worker, project_updates) = spawn_project_worker(wake.clone());
 
     // The updater is I/O, so it lives off the UI thread like project work.
-    // Luggage (the family's Rust-native pipeline) is the default transport;
-    // HOCKET_UPDATE_TRANSPORT=velopack keeps the A/B alternative selectable
-    // until one of them retires.
-    let transport: Box<dyn update::UpdateTransport> =
-        match std::env::var("HOCKET_UPDATE_TRANSPORT").as_deref() {
-            Ok("velopack") => Box::new(update::velopack_transport::VelopackTransport::new()),
-            _ => Box::new(update::luggage_transport::LuggageTransport::new()),
-        };
-    let (update_worker, update_statuses) = update::worker::spawn_update_worker(wake, transport);
-    let update_settings = update::UpdateSettings::default();
+    let (update_worker, update_statuses) =
+        update::worker::spawn_update_worker(wake, build_transport());
+    let update_settings = update::UpdateSettings::from_env();
     if update_settings.policy.checks() {
         update_worker.command(update::worker::UpdateCommand::Check {
             settings: update_settings,

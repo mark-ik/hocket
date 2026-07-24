@@ -152,18 +152,71 @@ start, but its editor can come with the broader settings work.
   `.cargo/config.toml` patch supplies the sibling checkout meanwhile (the
   same posture as the personae fold).
 
+- 2026-07-24: **H4 GREEN on Windows — hocket updated itself 0.1.0 → 0.2.0
+  through the luggage pipeline, end to end, no .NET involved.** The whole
+  chain is real: `cargo packager` built and minisign-signed an NSIS
+  installer, `luggage-manifest` (new bin in the luggage crate) computed the
+  BLAKE3 digest and wrote `luggage.json`, an installed 0.1.0 build checked
+  a directory feed, downloaded, verified digest + signature, ran the
+  installer, and the installed binary then reported 0.2.0.
+
+  Receipts, all against the *installed* build (not a dev binary):
+
+  | Case | Result |
+  | --- | --- |
+  | No feed configured | "Updates unavailable: no update transport in this build", exit 1 |
+  | Feed with a newer version, policy `automatic` | checked → downloaded → staged → applied; installed build became 0.2.0 |
+  | Feed at the current version | "Up to date (0.2.0)", exit 0 |
+  | **Artifact tampered after signing** | "Update download failed: The signature verification failed", exit 1, nothing installed |
+  | Newer version, policy `notify` | reports it and says what would apply it; **downloads nothing** |
+
+- 2026-07-24: **two packaging traps found the hard way, both silent, both
+  now fixed and documented in [`RELEASING.md`](RELEASING.md).** The first
+  run "succeeded" while installing the wrong bytes, which is exactly the
+  failure a release pipeline must not have:
+  1. **`cargo packager` does not build the app.** `--release` only says
+     where to look; without a `before-packaging-command` it packages
+     whatever is already in `target/release`.
+  2. **`cargo build` does not rebuild on a version-only change.** Bumping
+     `version` in Cargo.toml with no source edit leaves the old binary in
+     place, so the installer is *named* for the new version while the
+     binary still reports the old one via `env!("CARGO_PKG_VERSION")`.
+
+  Together they produced a "0.2.0" installer containing 0.1.0 code — and
+  the update applied it perfectly, which is how it was caught: the delivery
+  was correct, the package contents were not. The fix is a
+  `before-packaging-command` that cleans that one crate and rebuilds.
+  Worth keeping in mind: **the pipeline faithfully ships whatever you pack,
+  so verifying the packed binary's own version is part of releasing.**
+
+- Supporting pieces landed with the run: `--update-now` (runs the flow in
+  the terminal and prints each real state, so a GUI app's update cycle can
+  be proven and scripted; honours the policy, so `notify` reports without
+  fetching), `HOCKET_UPDATE_POLICY` as the interim policy setting, and
+  `luggage-manifest` (Rust, so it runs on every host; merges per-platform
+  entries into one manifest so a release is assembled host by host).
+  Packaging metadata (`product-name`, identifier, publisher) is in
+  hocket-genet's Cargo.toml. 32 update tests green.
+
+- State left behind, deliberately: hocket-genet is at **0.2.0** (the bump
+  was real and is now the installed version); a working Hocket 0.2.0 is
+  installed at `%LOCALAPPDATA%\Hocket` with Start-menu shortcuts and an
+  `uninstall.exe`; the acceptance feed is `%LOCALAPPDATA%\merely\hocket-feed`;
+  the release keypair is `%LOCALAPPDATA%\merely\release-keys\hocket.key`
+  (**private key never entered a repo** — back it up somewhere durable, it
+  is what future updates must be signed with).
+
 ### Next
 
 - **H3 remainder: the actions.** The status is visible but not yet
   actionable. `AppState` needs the worker handle threaded through
   `new`/`from_project_parts` to offer "Check now", "Download", and "Restart
   to finish". Deferred deliberately rather than bolted on with a setter.
-- **H4: the real cycle on hocket, luggage-first.** Pack with upstream
-  `cargo-packager` (NSIS on Windows), generate `luggage.json` (version,
-  per-platform url/signature/blake3; sign with `cargo-packager`'s minisign
-  signing or `rsign2`), point `HOCKET_UPDATE_FEED` at the feed dir, and run
-  v0.1 -> v0.2. Then Linux over SSH (AppImage), then macOS (`.app.tar.gz`;
-  rustup/cargo approved for the Mac, and no .NET needed anymore).
+- **H4 remainder: the other two hosts.** Windows is done; Linux over SSH
+  (AppImage) and macOS (`.app.tar.gz`) are next, following
+  [`RELEASING.md`](RELEASING.md). The Mac needs rustup/cargo installed
+  (approved) and no longer needs .NET at all. Each host adds its entry to
+  the same `luggage.json` via `luggage-manifest`.
 - **T2 (luggage): staged-swap apply mechanics** replacing
   installer-over-yourself, Velopack-grade, portable Rust.
 - **T3 (luggage): the P2P lane** — signed manifests + artifacts as

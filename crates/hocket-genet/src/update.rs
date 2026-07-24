@@ -16,6 +16,7 @@
 //!   system can actually be in, including why a failure failed. Nothing here
 //!   reports motion that is not happening.
 
+pub mod cli;
 pub mod luggage_transport;
 pub mod velopack_transport;
 pub mod worker;
@@ -117,6 +118,25 @@ impl Default for UpdateSettings {
             // Six hours: often enough to matter, rare enough to be invisible.
             check_interval_secs: 6 * 60 * 60,
         }
+    }
+}
+
+/// Environment variable overriding the update policy.
+pub const POLICY_ENV: &str = "HOCKET_UPDATE_POLICY";
+
+impl UpdateSettings {
+    /// Settings with [`POLICY_ENV`] applied over the defaults.
+    ///
+    /// The interim persistence layer: policy is a real setting from the
+    /// start, but its editor and its settings file come with the broader
+    /// settings work. An unreadable value falls back to the default rather
+    /// than silently disabling updates.
+    pub fn from_env() -> Self {
+        let mut settings = Self::default();
+        if let Ok(value) = std::env::var(POLICY_ENV) {
+            settings.policy = UpdatePolicy::from_str_or_default(value.trim());
+        }
+        settings
     }
 }
 
