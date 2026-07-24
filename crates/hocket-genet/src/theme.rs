@@ -42,6 +42,11 @@ pub fn sheet() -> String {
 .update-status { color: var(--voice-amber); font-size: 11px; padding-left: 16px;
                  flex-shrink: 0; max-width: 330px; overflow: hidden;
                  white-space: nowrap; text-overflow: ellipsis; }
+/* The same chip when it is also the button. Bordered so it reads as
+   clickable rather than as a label that happens to respond. */
+.update-action { border: 1px solid var(--voice-amber); border-radius: 7px;
+                 padding: 5px 10px; margin-left: 10px; }
+.update-action:hover { background-color: var(--raised); }
 .top-spacer { flex-grow: 1; }
 .chip { background-color: var(--surface); border: 1px solid var(--line-soft); color: var(--text-dim);
         font-size: 12px; padding: 5px 11px; border-radius: 14px; margin-right: 12px; }

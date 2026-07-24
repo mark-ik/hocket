@@ -80,13 +80,8 @@ struct App {
     a11y_route: HashMap<AccessNodeId, NodeId>,
     project_worker: Option<ActorHandle<ProjectCommand>>,
     project_updates: Receiver<ProjectUpdate>,
-    /// The update actor, and the honest statuses it reports.
-    ///
-    /// The handle is held rather than read: dropping it closes the command
-    /// channel and ends the actor, so this field is what keeps the updater
-    /// alive for the process's life (same reason `project_worker` is held).
-    /// It becomes read-from when the status chip grows its actions.
-    #[allow(dead_code)]
+    /// The update actor, handed to `AppState` at window creation so the
+    /// status chip can act, and the honest statuses it reports.
     update_worker: Option<ActorHandle<update::worker::UpdateCommand>>,
     update_statuses: Receiver<update::UpdateStatus>,
     /// The self-drive scenario (activated by `HOCKET_SCENARIO`), pumped one step
@@ -434,11 +429,15 @@ impl ApplicationHandler<HostEvent> for App {
             .project_worker
             .take()
             .expect("project worker initialized");
+        let update_worker = self
+            .update_worker
+            .take()
+            .expect("update worker initialized");
         let identity = LocalIdentity::open_default().map_err(|error| error.to_string());
         let runner = Runner::new(
             dom,
             root as fn(&AppState) -> Child,
-            AppState::new(worker, identity),
+            AppState::new(worker, update_worker, identity),
         );
 
         // Bootstrap the adapter from the real initial view before Windows sees

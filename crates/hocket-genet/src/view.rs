@@ -78,11 +78,25 @@ fn update_status_chip(state: &AppState) -> Child {
     if !worth_showing {
         return Box::new(el("span", ()));
     }
-    Box::new(
-        el("span", text(status.summary()))
-            .attr("class", "update-status mono")
-            .attr("aria-live", "polite"),
-    )
+    let summary = status.summary();
+    match state.update_action_label() {
+        // Actionable: the chip is the button. One affordance instead of
+        // three toolbar buttons, in a row that is already full, and the
+        // click always means "carry on from the state shown".
+        Some(action) => Box::new(clickable(
+            el("div", text(format!("{summary} · {action}")))
+                .attr("class", "update-status update-action mono")
+                .attr("role", "button")
+                .attr("aria-live", "polite")
+                .attr("aria-label", format!("{summary}. Click to {action}.")),
+            |state: &mut AppState, _| state.advance_update(),
+        )),
+        None => Box::new(
+            el("span", text(summary))
+                .attr("class", "update-status mono")
+                .attr("aria-live", "polite"),
+        ),
+    }
 }
 
 fn top(state: &AppState) -> Child {

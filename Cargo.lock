@@ -8284,6 +8284,14 @@ dependencies = [
 ]
 
 [[patch.unused]]
+name = "cambium-winit"
+version = "0.3.0"
+
+[[patch.unused]]
+name = "netfetcher"
+version = "0.1.1"
+
+[[patch.unused]]
 name = "chartulary"
 version = "0.1.2"
 
@@ -8321,15 +8329,15 @@ version = "0.0.3"
 
 [[patch.unused]]
 name = "sceno"
-version = "0.0.2"
+version = "0.0.3"
 
 [[patch.unused]]
 name = "scenomise"
-version = "0.0.2"
+version = "0.0.3"
 
 [[patch.unused]]
 name = "scenotime"
-version = "0.0.2"
+version = "0.0.3"
 
 [[patch.unused]]
 name = "scholia"
@@ -8349,14 +8357,6 @@ version = "0.1.1"
 
 [[patch.unused]]
 name = "vates"
-version = "0.1.1"
-
-[[patch.unused]]
-name = "cambium-winit"
-version = "0.3.0"
-
-[[patch.unused]]
-name = "netfetcher"
 version = "0.1.1"
 
 [[patch.unused]]

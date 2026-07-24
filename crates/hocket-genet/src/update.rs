@@ -236,6 +236,20 @@ impl UpdateStatus {
         )
     }
 
+    /// What clicking this status would do, if anything.
+    ///
+    /// The status knows what it invites, so the label and the action stay in
+    /// one place instead of the view guessing. `None` means there is nothing
+    /// to carry on with, and the chip stays a plain label.
+    pub fn action_label(&self) -> Option<&'static str> {
+        match self {
+            Self::Available { .. } => Some("download"),
+            Self::ReadyToRestart { .. } => Some("restart now"),
+            Self::Failed { .. } => Some("try again"),
+            _ => None,
+        }
+    }
+
     /// The version staged and awaiting a restart, if any.
     pub fn staged_version(&self) -> Option<&str> {
         match self {
@@ -433,6 +447,33 @@ mod tests {
         let summary = status.summary();
         assert!(summary.contains("not an installed build"), "got: {summary}");
         assert!(!status.can_check());
+    }
+
+    #[test]
+    fn only_states_worth_acting_on_offer_an_action() {
+        assert_eq!(
+            UpdateStatus::Available { version: "0.2.0".into() }.action_label(),
+            Some("download")
+        );
+        assert_eq!(
+            UpdateStatus::ReadyToRestart { version: "0.2.0".into() }.action_label(),
+            Some("restart now")
+        );
+        assert_eq!(
+            UpdateStatus::Failed { during: "check", reason: "no".into() }.action_label(),
+            Some("try again")
+        );
+        // In flight, or nothing to do: a click must not invent work.
+        for status in [
+            UpdateStatus::Checking,
+            UpdateStatus::Downloading { version: "0.2.0".into() },
+            UpdateStatus::Disabled,
+            UpdateStatus::Unsupported(Unsupported::NotInstalled),
+            UpdateStatus::UpToDate { current: "0.2.0".into() },
+            UpdateStatus::Idle,
+        ] {
+            assert_eq!(status.action_label(), None, "{status:?} must not be clickable");
+        }
     }
 
     #[test]

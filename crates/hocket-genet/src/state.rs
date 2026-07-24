@@ -87,6 +87,10 @@ pub struct AppState {
     /// What the app is actually doing about updates. Host-local presentation
     /// state: it never enters a project or a hand-off.
     update_status: crate::update::UpdateStatus,
+    /// The user's update policy, channel and cadence.
+    update_settings: crate::update::UpdateSettings,
+    /// The update actor, so the status chip can act rather than only report.
+    update_worker: ActorHandle<crate::update::worker::UpdateCommand>,
     /// Durable host identity. Its secret and unlock state never enter a project.
     identity: Result<LocalIdentity, String>,
     /// The OS clipboard, through genet's shared service. `None` on a headless
@@ -124,6 +128,7 @@ impl AppState {
     /// A new, empty looper-pedal session. Captures append real playable layers.
     pub fn new(
         project_worker: ActorHandle<ProjectCommand>,
+        update_worker: ActorHandle<crate::update::worker::UpdateCommand>,
         identity: Result<LocalIdentity, String>,
     ) -> Self {
         Self::from_project_parts(
@@ -132,16 +137,19 @@ impl AppState {
             InMemoryStore::new(),
             BTreeSet::new(),
             project_worker,
+            update_worker,
             identity,
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn from_project_parts(
         session: Session,
         history: History,
         store: InMemoryStore,
         missing_media: BTreeSet<MediaRef>,
         project_worker: ActorHandle<ProjectCommand>,
+        update_worker: ActorHandle<crate::update::worker::UpdateCommand>,
         identity: Result<LocalIdentity, String>,
     ) -> Self {
         let audio_devices = available_audio_devices();
@@ -171,6 +179,8 @@ impl AppState {
             project_status: ProjectStatus::Idle,
             project_worker,
             update_status: crate::update::UpdateStatus::Idle,
+            update_settings: crate::update::UpdateSettings::from_env(),
+            update_worker,
             identity,
             clipboard: SystemClipboard::new().ok(),
             recipient: None,
@@ -702,6 +712,48 @@ impl AppState {
     /// Apply a status the update worker reported.
     pub fn apply_update_status(&mut self, status: crate::update::UpdateStatus) {
         self.update_status = status;
+    }
+
+    /// Do whatever the current update status invites, if anything.
+    ///
+    /// One entry point rather than three buttons: the chip already says what
+    /// state the app is in, so the click means "carry on from here" — fetch
+    /// the offered version, restart into the staged one, or re-check after a
+    /// failure. Statuses with nothing to act on return without sending a
+    /// command, so a stray click cannot invent work.
+    pub fn advance_update(&mut self) {
+        use crate::update::UpdateStatus;
+        use crate::update::worker::UpdateCommand;
+
+        let command = match &self.update_status {
+            UpdateStatus::Available { version } => Some(UpdateCommand::Download {
+                version: version.clone(),
+                settings: self.update_settings,
+            }),
+            UpdateStatus::ReadyToRestart { .. } => Some(UpdateCommand::ApplyAndRestart),
+            // A failure is worth one more try; the reason stays visible until
+            // the retry reports something new.
+            UpdateStatus::Failed { .. } | UpdateStatus::Idle | UpdateStatus::UpToDate { .. } => {
+                Some(UpdateCommand::Check {
+                    settings: self.update_settings,
+                    user_asked: true,
+                })
+            }
+            // In flight, off, or impossible here: nothing to advance.
+            UpdateStatus::Checking
+            | UpdateStatus::Downloading { .. }
+            | UpdateStatus::Disabled
+            | UpdateStatus::Unsupported(_) => None,
+        };
+        if let Some(command) = command {
+            self.update_worker.command(command);
+        }
+    }
+
+    /// What clicking the update chip would do, for its label and aria text.
+    /// `None` when the chip is not actionable.
+    pub fn update_action_label(&self) -> Option<&'static str> {
+        self.update_status.action_label()
     }
 
     pub fn apply_project_update(&mut self, update: ProjectUpdate) {
