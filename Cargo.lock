@@ -8284,6 +8284,18 @@ dependencies = [
 ]
 
 [[patch.unused]]
+name = "cambium-winit"
+version = "0.3.0"
+
+[[patch.unused]]
+name = "netfetcher"
+version = "0.1.1"
+
+[[patch.unused]]
+name = "tinct"
+version = "0.1.2"
+
+[[patch.unused]]
 name = "chartulary"
 version = "0.1.2"
 
@@ -8352,13 +8364,16 @@ name = "vates"
 version = "0.1.1"
 
 [[patch.unused]]
-name = "cambium-winit"
-version = "0.3.0"
+name = "netrender"
+version = "0.1.0"
+source = "git+https://github.com/mark-ik/netrender.git?branch=main#3eb7d40592879585832d85bd75bd6976379fd109"
 
 [[patch.unused]]
-name = "netfetcher"
-version = "0.1.1"
+name = "paint_list_api"
+version = "0.1.0"
+source = "git+https://github.com/mark-ik/netrender.git?branch=main#3eb7d40592879585832d85bd75bd6976379fd109"
 
 [[patch.unused]]
-name = "tinct"
-version = "0.1.2"
+name = "paint_list_render"
+version = "0.1.0"
+source = "git+https://github.com/mark-ik/netrender.git?branch=main#3eb7d40592879585832d85bd75bd6976379fd109"

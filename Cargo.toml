@@ -135,6 +135,18 @@ tokio = { version = "1.50", features = ["rt", "rt-multi-thread", "time", "sync"]
 [patch.crates-io]
 layout-dom-api = { git = "https://github.com/mark-ik/genet.git", branch = "main", version = "=0.1.0" }
 genet-scripted-dom = { git = "https://github.com/mark-ik/genet.git", branch = "main", version = "=0.1.0" }
+# The netrender family MUST be patched here, or a clean checkout does not
+# build (found 2026-07-24 on the Linux box, which has no local patch file).
+# We git-dep these from netrender, while the PUBLISHED cambium/sprigging
+# depend on their crates.io copies — two `paint_list_api` crates in one
+# graph, so a `sprigging::PaintCmd` is not a `paint_list_api::PaintCmd` and
+# `leaves.rs` fails to compile. It looks like a code bug and is a
+# dependency-source split. A dev machine hides this: the gitignored
+# `.cargo/config.toml` redirects cambium/sprigging to local checkouts, which
+# git-dep netrender themselves and so unify by accident.
+netrender = { git = "https://github.com/mark-ik/netrender.git", branch = "main" }
+paint_list_api = { git = "https://github.com/mark-ik/netrender.git", branch = "main" }
+paint_list_render = { git = "https://github.com/mark-ik/netrender.git", branch = "main" }
 # NO stylo/stylo_atoms patch (removed 2026-07-12, mirroring genet): the fork
 # is now the RENAMED `genet-stylo` family, and a `[patch]` cannot rename its
 # target. Genet's crates git-dep genet-stylo by package rename instead, so no
