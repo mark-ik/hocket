@@ -89,6 +89,27 @@ hocket-genet --update-now                 # or just launch the app
 app does the same in the background and shows it in the top bar. Both honour
 the policy, so `notify` reports an available version without fetching it.
 
+## Working across the release machines
+
+`Cargo.lock` is committed (correct for an application), but each machine
+re-resolves it — a dev box has the gitignored `.cargo/config.toml` patches,
+a clean one does not. So the lock is usually dirty on the secondary hosts,
+and `git pull` **aborts**:
+
+```text
+Please commit your changes or stash them before you merge.
+Aborting
+```
+
+The dangerous part is that a `git pull … && cargo build …` chain then
+builds the *old* commit and fails in a way that looks like your fix did not
+work. Restore the generated lock before pulling, and check the commit you
+actually got:
+
+```sh
+git restore Cargo.lock && git pull --ff-only && git log --oneline -1
+```
+
 ## Traps, both found the hard way on 2026-07-24
 
 1. **`cargo packager` does not build your app.** `--release` only tells it
