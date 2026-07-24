@@ -234,6 +234,41 @@ start, but its editor can come with the broader settings work.
   monotonic-version + signed-timestamp work, which this promotes from
   nicety to requirement.
 
+- 2026-07-24: **macOS leg GREEN.** A real `.app` bundle in `~/Applications`
+  updated itself through a signed directory feed on the Intel Mac
+  (macOS 15.7.7): `hocket 0.1.0 → Checking → Downloading 0.2.0 →
+  applied → hocket 0.2.0`. Note the platform difference in the same code:
+  macOS prints `applied` because it swaps the bundle and returns, where
+  Windows exits into its installer and never gets to print it. Both are
+  honest; neither needed a special case.
+- 2026-07-24 **cross-platform findings**, most of which only a machine
+  *without* a dev checkout could produce:
+  1. **hocket did not build on a clean checkout at all.** We git-dep
+     `paint_list_api` from netrender while the *published* cambium/sprigging
+     depend on its crates.io copy: two `paint_list_api` crates, so
+     `sprigging::PaintCmd` is not `paint_list_api::PaintCmd` and
+     `leaves.rs` fails. It reads like a code bug and is a
+     dependency-source split. Fixed by taking cambium/sprigging from
+     genet's git like the rest of the stack. `[patch.crates-io]` does *not*
+     fix this — it cannot redirect a published crate's own registry
+     dependency (tried first; the crates.io copy stayed put).
+  2. **hocket had no icon**, which NSIS never minded and AppImage refuses to
+     pack without. Added one: the brand's open loop closed by its period,
+     in the theme's own ground and amber.
+  3. **The macOS artifact is the packer's `.app.tar.gz`, not the `.app`** —
+     luggage gunzips and untars. RELEASING.md briefly said this had to be
+     tarred by hand, which I had inferred from the format docs rather than
+     observed; the packer already emits and signs it. Corrected.
+  4. **Fedora 44 needs two env vars to pack an AppImage**: no libfuse2 (only
+     fuse3) so `APPIMAGE_EXTRACT_AND_RUN=1`, and linuxdeploy's bundled
+     `strip` cannot read the system libxml2 (`unknown type [0x13] section
+     .relr.dyn`) so `NO_STRIP=1`.
+  5. **A dirty `Cargo.lock` (or a version-bumped `Cargo.toml`) silently
+     aborts `git pull`**, so a `pull && build` chain rebuilds the *old*
+     commit and fails in a way that looks like the fix did not work. Cost
+     two speculative fixes before checking `git log` on the remote. The
+     acceptance scripts now restore both files on exit.
+
 ### Next
 
 - **H3 remainder: the actions.** The status is visible but not yet

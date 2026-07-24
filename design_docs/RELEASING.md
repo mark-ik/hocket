@@ -54,22 +54,21 @@ What luggage downloads is not always what `cargo packager` emits:
 | --- | --- | --- |
 | Windows | `nsis` | the `…-setup.exe` as packed |
 | Linux | `appimage` | the `.AppImage` itself (luggage writes the downloaded bytes straight over the running AppImage) |
-| macOS | `app` | a **gzipped tar of the `.app`**, which must be made and signed separately |
+| macOS | `app` | the **`.app.tar.gz`** the packer emits beside the bundle (luggage gunzips and untars) — *not* the `.app` itself |
 
-macOS needs the extra step because `cargo packager --formats app` produces
-only the bundle, while luggage's macOS install path gunzips and untars (and
-a tarball is what preserves the bundle's structure and permissions):
+macOS is the one to watch: `--formats app` writes both `Hocket.app` and a
+signed `Hocket.app.tar.gz`. Install the bundle, but point the manifest at
+the tarball:
 
 ```sh
 cargo packager -p hocket-genet --release --formats app
-cd target/release
-tar czf Hocket.app.tar.gz Hocket.app
-cargo packager signer sign --private-key-path <hocket.key> Hocket.app.tar.gz
-luggage-manifest --artifact Hocket.app.tar.gz --version <ver> --format app
+luggage-manifest --artifact target/release/Hocket.app.tar.gz \
+                 --version <ver> --format app
 ```
 
-Sign the **tarball**, not the bundle: the signature must cover the bytes
-that are actually downloaded.
+(An earlier version of this file claimed the tarball had to be made by hand,
+inferred from the format docs. Observed behaviour on 2026-07-24: the packer
+already produces and signs it.)
 
 For a directory feed the default `file://` URL is right. For a published
 feed pass `--url` with the URL the artifact will actually live at (for a
@@ -109,6 +108,19 @@ actually got:
 ```sh
 git restore Cargo.lock && git pull --ff-only && git log --oneline -1
 ```
+
+### Linux: two env vars this box needs
+
+Fedora 44 (and anything else without libfuse2, or with a newer libxml2 than
+linuxdeploy's bundled `strip` understands):
+
+```sh
+export APPIMAGE_EXTRACT_AND_RUN=1   # no libfuse2: AppImage tools cannot self-mount
+export NO_STRIP=1                   # linuxdeploy's strip chokes on libxml2's .relr.dyn
+```
+
+Both are needed for *packing*, not just for running the result — the packer
+runs linuxdeploy and appimagetool, which are themselves AppImages.
 
 ## Traps, both found the hard way on 2026-07-24
 
