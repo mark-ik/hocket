@@ -553,6 +553,7 @@ dependencies = [
 [[package]]
 name = "audio-primitives"
 version = "0.1.0"
+source = "git+https://github.com/mark-ik/woodshed.git?branch=main#296997f23014afa5a50c890007da3875fbdb00dd"
 
 [[package]]
 name = "autocfg"
@@ -948,6 +949,8 @@ dependencies = [
 [[package]]
 name = "cambium"
 version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52c0d7fce8d06cc80e5d0a72eae9400fcbcba7fe5026b64ea4ba656962c28342"
 dependencies = [
  "genet-scripted-dom",
  "layout-dom-api",
@@ -1739,7 +1742,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2238,7 +2241,7 @@ dependencies = [
  "layout-dom-api",
  "malloc_size_of_derive",
  "markup5ever",
- "paint_list_api",
+ "paint_list_api 0.1.0",
  "parley",
  "rayon",
  "resvg",
@@ -2681,7 +2684,7 @@ dependencies = [
  "layout-dom-api",
  "muniment",
  "netrender",
- "paint_list_api",
+ "paint_list_api 0.1.0",
  "paint_list_render",
  "personae",
  "pollster",
@@ -3303,6 +3306,8 @@ dependencies = [
 [[package]]
 name = "meristem"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62ebdfb1ffd9b33bfc07a0be55940e0a72c1950d96952ff5dd8249d5efda5fab"
 dependencies = [
  "anymore",
  "hashbrown 0.17.1",
@@ -3984,12 +3989,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "paint_list_api"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf8d106a9c20e5ff07e914931f79dc4c3477593bc751c59f70d6db5f483c0da9"
+dependencies = [
+ "euclid",
+ "serde",
+]
+
+[[package]]
 name = "paint_list_render"
 version = "0.1.0"
 dependencies = [
  "log",
  "netrender",
- "paint_list_api",
+ "paint_list_api 0.1.0",
 ]
 
 [[package]]
@@ -4868,7 +4883,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5342,9 +5357,11 @@ dependencies = [
 [[package]]
 name = "sprigging"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "513ac52a93e35b397ec660cd9d7d869da66e54cf62b724c9d111b6cc5cbfc5b6"
 dependencies = [
  "accesskit",
- "paint_list_api",
+ "paint_list_api 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "vello",
 ]
 
@@ -5582,10 +5599,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6355,6 +6372,7 @@ dependencies = [
 [[package]]
 name = "wavicle"
 version = "0.1.0"
+source = "git+https://github.com/mark-ik/wavicle.git?branch=main#77060262b0d8bd63a515596e6a051de97b75f472"
 
 [[package]]
 name = "wayland-backend"
@@ -6673,7 +6691,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7435,6 +7453,22 @@ dependencies = [
  "syn",
  "winnow 1.0.4",
 ]
+
+[[patch.unused]]
+name = "cambium"
+version = "0.3.0"
+
+[[patch.unused]]
+name = "sprigging"
+version = "0.2.0"
+
+[[patch.unused]]
+name = "cambium"
+version = "0.3.0"
+
+[[patch.unused]]
+name = "sprigging"
+version = "0.2.0"
 
 [[patch.unused]]
 name = "tinct"

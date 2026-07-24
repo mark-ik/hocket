@@ -32,7 +32,7 @@ hocket-model = { path = "crates/hocket-model", version = "0.1.0" }
 # path-dep. hocket-engine's click loop calls the shared click synth;
 # the onset/tempo + latency cores are here for FT3c (calibration) and
 # bar-alignment work. Pure std, no engine/UI coupling.
-audio-primitives = { path = "../woodshed/crates/audio-primitives", version = "0.1.0" }
+audio-primitives = { git = "https://github.com/mark-ik/woodshed.git", branch = "main", version = "0.1.0" }
 
 # Portable durable-byte seam shared with Woodshed and Isometry. Hocket keeps
 # its own model and MediaRef identity; muniment owns backend mechanics.
@@ -45,7 +45,7 @@ personae = { path = "../personae", version = "0.1.0" }
 # importable, wasm-capable .wv instead of WAV. `encode` is on because Hocket
 # both writes and reads media; MediaRef identity stays Hocket's BLAKE3 over the
 # decoded f32 samples, unchanged by the codec swap.
-wavicle = { path = "../wavicle", version = "0.1.0", features = ["encode"] }
+wavicle = { git = "https://github.com/mark-ik/wavicle.git", branch = "main", version = "0.1.0", features = ["encode"] }
 
 # Firewheel: modular audio graph engine, the spine of hocket-engine
 # (FT3b-prime). cpal feature enables the default native backend; the
@@ -86,8 +86,10 @@ paint_list_render = { git = "https://github.com/mark-ik/netrender.git", branch =
 # netrender's per-target split. Single wgpu 29 tree now the Masonry app
 # (wgpu 28) is retired.
 wgpu = { version = "29", default-features = false, features = ["std"] }
-# Pure OKLCH seed-to-palette theming (shared; woodshed's too).
-tinct = { git = "https://github.com/mark-ik/tinct", branch = "main" }
+# Pure OKLCH seed-to-palette theming (shared; woodshed's too). A genet
+# component; the standalone mirror repo retires with the 2026-07-23
+# consolidation.
+tinct = { git = "https://github.com/mark-ik/genet.git", branch = "main" }
 
 # Audio I/O + DSP
 cpal = "0.15"
