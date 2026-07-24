@@ -53,6 +53,29 @@ pub fn root(state: &AppState) -> Child {
     Box::new(el("div", (top(state), body(state), transport(state))).attr("class", "app"))
 }
 
+/// The update state, shown only when there is something true to say.
+///
+/// `Idle` (never checked this run) and `UpToDate` are deliberately silent:
+/// a chip that always shows something trains the eye to ignore it, and the
+/// point of this indicator is that when it speaks, it is reporting a state the
+/// app is genuinely in.
+fn update_status_chip(state: &AppState) -> Child {
+    use crate::update::UpdateStatus;
+    let status = state.update_status();
+    let worth_showing = !matches!(
+        status,
+        UpdateStatus::Idle | UpdateStatus::UpToDate { .. } | UpdateStatus::Disabled
+    );
+    if !worth_showing {
+        return Box::new(el("span", ()));
+    }
+    Box::new(
+        el("span", text(status.summary()))
+            .attr("class", "update-status mono")
+            .attr("aria-live", "polite"),
+    )
+}
+
 fn top(state: &AppState) -> Child {
     let profile = match state.session.default_playback_mode {
         PlaybackMode::Sum => "looper-pedal",
@@ -74,6 +97,7 @@ fn top(state: &AppState) -> Child {
                 .attr("class", "brand"),
                 el("span", text(state.project_label())).attr("class", "session-name mono"),
                 el("span", text(status)).attr("class", "project-status mono"),
+                update_status_chip(state),
                 el("div", ()).attr("class", "top-spacer"),
                 el("span", text(chip)).attr("class", "chip mono"),
                 clickable(

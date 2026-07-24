@@ -84,6 +84,9 @@ pub struct AppState {
     saved_head: hocket_model::NodeId,
     project_status: ProjectStatus,
     project_worker: ActorHandle<ProjectCommand>,
+    /// What the app is actually doing about updates. Host-local presentation
+    /// state: it never enters a project or a hand-off.
+    update_status: crate::update::UpdateStatus,
     /// Durable host identity. Its secret and unlock state never enter a project.
     identity: Result<LocalIdentity, String>,
     /// The OS clipboard, through genet's shared service. `None` on a headless
@@ -167,6 +170,7 @@ impl AppState {
             saved_head,
             project_status: ProjectStatus::Idle,
             project_worker,
+            update_status: crate::update::UpdateStatus::Idle,
             identity,
             clipboard: SystemClipboard::new().ok(),
             recipient: None,
@@ -688,6 +692,16 @@ impl AppState {
         } else {
             bars.saturating_add(delta as u8)
         });
+    }
+
+    /// The current update status, for the view.
+    pub fn update_status(&self) -> &crate::update::UpdateStatus {
+        &self.update_status
+    }
+
+    /// Apply a status the update worker reported.
+    pub fn apply_update_status(&mut self, status: crate::update::UpdateStatus) {
+        self.update_status = status;
     }
 
     pub fn apply_project_update(&mut self, update: ProjectUpdate) {

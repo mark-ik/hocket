@@ -13,6 +13,7 @@ mod project_io;
 mod scenario;
 mod state;
 mod theme;
+mod update;
 mod view;
 
 use std::cell::RefCell;
@@ -79,6 +80,15 @@ struct App {
     a11y_route: HashMap<AccessNodeId, NodeId>,
     project_worker: Option<ActorHandle<ProjectCommand>>,
     project_updates: Receiver<ProjectUpdate>,
+    /// The update actor, and the honest statuses it reports.
+    ///
+    /// The handle is held rather than read: dropping it closes the command
+    /// channel and ends the actor, so this field is what keeps the updater
+    /// alive for the process's life (same reason `project_worker` is held).
+    /// It becomes read-from when the status chip grows its actions.
+    #[allow(dead_code)]
+    update_worker: Option<ActorHandle<update::worker::UpdateCommand>>,
+    update_statuses: Receiver<update::UpdateStatus>,
     /// The self-drive scenario (activated by `HOCKET_SCENARIO`), pumped one step
     /// per timer tick. `None` for a normal interactive launch. Taken out of
     /// `self` during a tick, so capture-dir state lives separately below.
@@ -96,6 +106,12 @@ impl App {
         while let Ok(update) = self.project_updates.try_recv() {
             if let Some(runner) = self.runner.as_mut() {
                 runner.update(|state| state.apply_project_update(update));
+                updated = true;
+            }
+        }
+        while let Ok(status) = self.update_statuses.try_recv() {
+            if let Some(runner) = self.runner.as_mut() {
+                runner.update(|state| state.apply_update_status(status));
                 updated = true;
             }
         }
@@ -537,6 +553,11 @@ impl ApplicationHandler<HostEvent> for App {
 }
 
 fn main() {
+    // FIRST, before anything else: Velopack hooks install/update/uninstall
+    // lifecycle events here and may restart or exit the process. Opening a
+    // window or an audio device ahead of it would leak both.
+    velopack::VelopackApp::build().run();
+
     let event_loop = EventLoop::<HostEvent>::with_user_event()
         .build()
         .expect("event loop");
@@ -545,7 +566,18 @@ fn main() {
     let wake: Wake = Arc::new(move || {
         let _ = proxy.send_event(HostEvent::ProjectUpdate);
     });
-    let (project_worker, project_updates) = spawn_project_worker(wake);
+    let (project_worker, project_updates) = spawn_project_worker(wake.clone());
+
+    // The updater is I/O, so it lives off the UI thread like project work.
+    let (update_worker, update_statuses) =
+        update::worker::spawn_update_worker(wake, update::velopack_transport::VelopackTransport::new());
+    let update_settings = update::UpdateSettings::default();
+    if update_settings.policy.checks() {
+        update_worker.command(update::worker::UpdateCommand::Check {
+            settings: update_settings,
+            user_asked: false,
+        });
+    }
     let scenario_run = scenario::load();
     let capture_dir = scenario_run.as_ref().map(|run| run.dir.clone());
     let mut app = App {
@@ -563,6 +595,8 @@ fn main() {
         a11y_route: HashMap::new(),
         project_worker: Some(project_worker),
         project_updates,
+        update_worker: Some(update_worker),
+        update_statuses,
         scenario: scenario_run,
         capture_dir,
         pending_capture: None,

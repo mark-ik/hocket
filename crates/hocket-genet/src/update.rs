@@ -1,0 +1,415 @@
+//! Auto-update: policy, honest status, and the transport seam.
+//!
+//! Per [`design_docs/2026-07-24_auto-update_plan.md`](../../../design_docs/2026-07-24_auto-update_plan.md).
+//!
+//! Two layers. Everything above [`UpdateTransport`] is platform-neutral and
+//! unit-tested, because the *decisions* must be identical on every host; only
+//! the mechanism below it is per-platform. That split is what makes "works
+//! everywhere" a property of the design rather than something each host has
+//! to remember.
+//!
+//! ## Two rules this module exists to keep
+//!
+//! - **Configurable, never a checkbox.** [`UpdatePolicy`] is four real
+//!   behaviours plus a channel and a cadence, not a boolean.
+//! - **Honest status.** [`UpdateStatus`] has a variant for every state the
+//!   system can actually be in, including why a failure failed. Nothing here
+//!   reports motion that is not happening.
+
+pub mod velopack_transport;
+pub mod worker;
+
+use std::fmt;
+
+/// How much the app may do on its own.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum UpdatePolicy {
+    /// Never check. The user updates manually or their package manager does.
+    Off,
+    /// Check and report, but download nothing without being asked.
+    #[default]
+    NotifyOnly,
+    /// Check and download, but do not apply until the user says so.
+    DownloadThenAsk,
+    /// Check, download, and apply, restarting when the user next allows it.
+    Automatic,
+}
+
+impl UpdatePolicy {
+    /// Whether this policy checks at all.
+    pub fn checks(self) -> bool {
+        !matches!(self, Self::Off)
+    }
+
+    /// Whether this policy may download without asking.
+    pub fn may_download(self) -> bool {
+        matches!(self, Self::DownloadThenAsk | Self::Automatic)
+    }
+
+    /// Whether this policy may apply without asking.
+    pub fn may_apply(self) -> bool {
+        matches!(self, Self::Automatic)
+    }
+
+    /// Stable string form, for settings persistence.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::NotifyOnly => "notify",
+            Self::DownloadThenAsk => "download-then-ask",
+            Self::Automatic => "automatic",
+        }
+    }
+
+    /// Parse the persisted form; unknown values fall back to the default
+    /// rather than silently disabling updates.
+    pub fn from_str_or_default(value: &str) -> Self {
+        match value {
+            "off" => Self::Off,
+            "download-then-ask" => Self::DownloadThenAsk,
+            "automatic" => Self::Automatic,
+            _ => Self::NotifyOnly,
+        }
+    }
+}
+
+/// Which release stream to follow.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum UpdateChannel {
+    /// Released builds.
+    #[default]
+    Stable,
+    /// Pre-release builds.
+    Beta,
+}
+
+impl UpdateChannel {
+    /// Stable string form, for settings persistence.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Stable => "stable",
+            Self::Beta => "beta",
+        }
+    }
+}
+
+/// The user's update settings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UpdateSettings {
+    /// How much the app may do on its own.
+    pub policy: UpdatePolicy,
+    /// Which release stream to follow.
+    pub channel: UpdateChannel,
+    /// Minimum seconds between automatic checks. A check the user explicitly
+    /// asks for ignores this.
+    pub check_interval_secs: u64,
+}
+
+impl Default for UpdateSettings {
+    fn default() -> Self {
+        Self {
+            policy: UpdatePolicy::default(),
+            channel: UpdateChannel::default(),
+            // Six hours: often enough to matter, rare enough to be invisible.
+            check_interval_secs: 6 * 60 * 60,
+        }
+    }
+}
+
+/// Why the app cannot update itself in this installation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Unsupported {
+    /// Running from a build that our installer did not place (a `cargo run`
+    /// dev build, a copied binary). Self-updating would corrupt whatever
+    /// layout it is actually running in.
+    NotInstalled,
+    /// The platform build has no update transport compiled in.
+    NoTransport,
+}
+
+impl fmt::Display for Unsupported {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotInstalled => write!(
+                f,
+                "not an installed build, so updates are managed outside the app"
+            ),
+            Self::NoTransport => write!(f, "no update transport in this build"),
+        }
+    }
+}
+
+/// What the app is actually doing about updates, right now.
+///
+/// Every variant is a state the system is genuinely in. There is deliberately
+/// no "working..." catch-all: a spinner with nothing behind it is exactly what
+/// this type exists to prevent.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UpdateStatus {
+    /// Updates are off by policy.
+    Disabled,
+    /// This installation cannot self-update, and why.
+    Unsupported(Unsupported),
+    /// Nothing in flight, and we have never checked this run.
+    Idle,
+    /// A check is in flight.
+    Checking,
+    /// Checked, and this is the newest build.
+    UpToDate {
+        /// The version we are running.
+        current: String,
+    },
+    /// A newer version exists and has not been downloaded.
+    Available {
+        /// The version on offer.
+        version: String,
+    },
+    /// A download is in flight.
+    Downloading {
+        /// The version being fetched.
+        version: String,
+    },
+    /// Downloaded and staged; it applies on restart.
+    ReadyToRestart {
+        /// The staged version.
+        version: String,
+    },
+    /// Something failed, with the reason kept rather than swallowed.
+    Failed {
+        /// What we were attempting.
+        during: &'static str,
+        /// Why it failed, in the words the layer below used.
+        reason: String,
+    },
+}
+
+impl UpdateStatus {
+    /// One line for the UI. Short, and never claims motion that is not
+    /// happening.
+    pub fn summary(&self) -> String {
+        match self {
+            Self::Disabled => "Updates off".to_string(),
+            Self::Unsupported(why) => format!("Updates unavailable: {why}"),
+            Self::Idle => "Not checked yet".to_string(),
+            Self::Checking => "Checking for updates".to_string(),
+            Self::UpToDate { current } => format!("Up to date ({current})"),
+            Self::Available { version } => format!("Version {version} available"),
+            Self::Downloading { version } => format!("Downloading {version}"),
+            Self::ReadyToRestart { version } => format!("{version} ready, restart to finish"),
+            Self::Failed { during, reason } => format!("Update {during} failed: {reason}"),
+        }
+    }
+
+    /// Whether a check is worth offering now.
+    ///
+    /// False while one is in flight, and false when the installation cannot
+    /// update at all: offering an action that is guaranteed to fail is the
+    /// dishonest-UI failure mode this type exists to avoid.
+    pub fn can_check(&self) -> bool {
+        !matches!(
+            self,
+            Self::Checking | Self::Downloading { .. } | Self::Disabled | Self::Unsupported(_)
+        )
+    }
+
+    /// The version staged and awaiting a restart, if any.
+    pub fn staged_version(&self) -> Option<&str> {
+        match self {
+            Self::ReadyToRestart { version } => Some(version),
+            _ => None,
+        }
+    }
+}
+
+/// What a check found.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CheckOutcome {
+    /// Already newest.
+    UpToDate,
+    /// A newer version is on offer.
+    Update(String),
+}
+
+/// What the app should do next, given its policy and what a check found.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NextStep {
+    /// Nothing to do.
+    Rest,
+    /// Download the named version now.
+    Download(String),
+    /// Tell the user and wait.
+    AskUser(String),
+}
+
+/// The decision layer.
+///
+/// Pure: this is the behaviour that must be identical on every host, so it
+/// takes no I/O and is tested directly.
+pub fn decide(settings: UpdateSettings, outcome: &CheckOutcome) -> NextStep {
+    match outcome {
+        CheckOutcome::UpToDate => NextStep::Rest,
+        CheckOutcome::Update(version) => {
+            if !settings.policy.checks() {
+                // A policy that does not check cannot act on a result.
+                NextStep::Rest
+            } else if settings.policy.may_download() {
+                NextStep::Download(version.clone())
+            } else {
+                NextStep::AskUser(version.clone())
+            }
+        }
+    }
+}
+
+/// After a successful download, whether to apply now or wait for the user.
+pub fn after_download(settings: UpdateSettings, version: String) -> UpdateStatus {
+    // Even `Automatic` stages rather than yanking the app out from under a
+    // recording: the restart is offered, never forced.
+    let _ = settings.policy.may_apply();
+    UpdateStatus::ReadyToRestart { version }
+}
+
+/// The per-platform mechanism.
+///
+/// Desktop is Velopack; a surface Velopack does not serve (a service worker,
+/// firmware offered over the mesh) implements this instead of reimplementing
+/// the policy above it.
+pub trait UpdateTransport: Send {
+    /// Whether this build can actually self-update.
+    fn availability(&self) -> Result<(), Unsupported>;
+
+    /// The running version.
+    fn current_version(&self) -> String;
+
+    /// Ask the feed what is newest.
+    fn check(&self, channel: UpdateChannel) -> Result<CheckOutcome, String>;
+
+    /// Fetch a version and stage it.
+    fn download(&self, version: &str) -> Result<(), String>;
+
+    /// Apply what is staged and restart.
+    fn apply_and_restart(&self) -> Result<(), String>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn settings(policy: UpdatePolicy) -> UpdateSettings {
+        UpdateSettings {
+            policy,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn policy_is_four_behaviours_not_a_boolean() {
+        assert!(!UpdatePolicy::Off.checks());
+        for policy in [
+            UpdatePolicy::NotifyOnly,
+            UpdatePolicy::DownloadThenAsk,
+            UpdatePolicy::Automatic,
+        ] {
+            assert!(policy.checks());
+        }
+        assert!(!UpdatePolicy::NotifyOnly.may_download());
+        assert!(UpdatePolicy::DownloadThenAsk.may_download());
+        assert!(!UpdatePolicy::DownloadThenAsk.may_apply());
+        assert!(UpdatePolicy::Automatic.may_apply());
+    }
+
+    #[test]
+    fn notify_only_asks_and_never_downloads() {
+        let step = decide(
+            settings(UpdatePolicy::NotifyOnly),
+            &CheckOutcome::Update("0.2.0".into()),
+        );
+        assert_eq!(step, NextStep::AskUser("0.2.0".into()));
+    }
+
+    #[test]
+    fn downloading_policies_download() {
+        for policy in [UpdatePolicy::DownloadThenAsk, UpdatePolicy::Automatic] {
+            let step = decide(settings(policy), &CheckOutcome::Update("0.2.0".into()));
+            assert_eq!(step, NextStep::Download("0.2.0".into()));
+        }
+    }
+
+    #[test]
+    fn off_never_acts_even_on_a_found_update() {
+        let step = decide(
+            settings(UpdatePolicy::Off),
+            &CheckOutcome::Update("9.9.9".into()),
+        );
+        assert_eq!(step, NextStep::Rest, "policy Off must not act");
+    }
+
+    #[test]
+    fn up_to_date_rests_under_every_policy() {
+        for policy in [
+            UpdatePolicy::Off,
+            UpdatePolicy::NotifyOnly,
+            UpdatePolicy::DownloadThenAsk,
+            UpdatePolicy::Automatic,
+        ] {
+            assert_eq!(decide(settings(policy), &CheckOutcome::UpToDate), NextStep::Rest);
+        }
+    }
+
+    #[test]
+    fn even_automatic_stages_rather_than_restarting_under_the_user() {
+        // Hocket can be recording. An update never yanks the app away; it
+        // stages and offers.
+        let status = after_download(settings(UpdatePolicy::Automatic), "0.2.0".into());
+        assert_eq!(status, UpdateStatus::ReadyToRestart { version: "0.2.0".into() });
+        assert_eq!(status.staged_version(), Some("0.2.0"));
+    }
+
+    #[test]
+    fn status_summaries_never_claim_motion_that_is_not_happening() {
+        assert_eq!(UpdateStatus::Idle.summary(), "Not checked yet");
+        assert_eq!(
+            UpdateStatus::UpToDate { current: "0.1.0".into() }.summary(),
+            "Up to date (0.1.0)"
+        );
+        // A failure keeps its reason instead of degrading to "something went wrong".
+        let failed = UpdateStatus::Failed {
+            during: "check",
+            reason: "feed unreachable".into(),
+        };
+        assert!(failed.summary().contains("feed unreachable"));
+    }
+
+    #[test]
+    fn a_dev_build_reports_why_it_cannot_update() {
+        let status = UpdateStatus::Unsupported(Unsupported::NotInstalled);
+        let summary = status.summary();
+        assert!(summary.contains("not an installed build"), "got: {summary}");
+        assert!(!status.can_check());
+    }
+
+    #[test]
+    fn checks_are_not_offered_while_one_is_in_flight() {
+        assert!(!UpdateStatus::Checking.can_check());
+        assert!(!UpdateStatus::Downloading { version: "0.2.0".into() }.can_check());
+        assert!(UpdateStatus::Idle.can_check());
+        assert!(UpdateStatus::Available { version: "0.2.0".into() }.can_check());
+    }
+
+    #[test]
+    fn policy_round_trips_through_its_persisted_form() {
+        for policy in [
+            UpdatePolicy::Off,
+            UpdatePolicy::NotifyOnly,
+            UpdatePolicy::DownloadThenAsk,
+            UpdatePolicy::Automatic,
+        ] {
+            assert_eq!(UpdatePolicy::from_str_or_default(policy.as_str()), policy);
+        }
+        // An unreadable setting must not silently disable updates.
+        assert_eq!(
+            UpdatePolicy::from_str_or_default("nonsense"),
+            UpdatePolicy::NotifyOnly
+        );
+    }
+}

@@ -15,6 +15,7 @@ hocket-engine = { workspace = true }
 audio-primitives = { workspace = true }
 cambium = { workspace = true }
 sprigging = { workspace = true }
+velopack = { workspace = true }
 layout-dom-api = { workspace = true }
 genet-scripted-dom = { workspace = true }
 genet-layout = { workspace = true }

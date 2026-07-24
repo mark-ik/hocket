@@ -70,8 +70,12 @@ winit = "0.30"
 # mirrors Woodshed's Genet section. Git deps on the owned repos; local
 # checkouts ride the gitignored .cargo/config.toml source-specific [patch].
 # Build hocket-genet from the hocket cwd so that patch applies.
-cambium = "0.2.0"
-sprigging = "0.1.0"
+# Track upstream-current (2026-07-24). The old 0.2.0/0.1.0 pins no longer
+# matched the local genet checkout, so the [patch] entries silently went
+# unused and the published pair dragged a SECOND `paint_list_api` into the
+# graph — two incompatible `PaintCmd` types, not an obvious version error.
+cambium = "0.3.0"
+sprigging = "0.2.0"
 layout-dom-api = { git = "https://github.com/mark-ik/genet.git", branch = "main", version = "=0.1.0" }
 genet-scripted-dom = { git = "https://github.com/mark-ik/genet.git", branch = "main", version = "=0.1.0" }
 genet-layout = { git = "https://github.com/mark-ik/genet.git", branch = "main" }
@@ -90,6 +94,11 @@ wgpu = { version = "29", default-features = false, features = ["std"] }
 # component; the standalone mirror repo retires with the 2026-07-23
 # consolidation.
 tinct = { git = "https://github.com/mark-ik/genet.git", branch = "main" }
+
+# Auto-update (2026-07-24 auto-update plan). Velopack is the family's desktop
+# update transport: one mechanism for Windows, macOS, and Linux. The crate is
+# the runtime half; releases are packed with the matching `vpk` CLI.
+velopack = "1.2.0"
 
 # Audio I/O + DSP
 cpal = "0.15"
