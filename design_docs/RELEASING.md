@@ -46,6 +46,22 @@ luggage-manifest --artifact <feed>/hocket-genet_<ver>_x64-setup.exe \
 into an existing `luggage.json` when the version matches — so the Mac and
 Linux entries can be added later without redoing the Windows one.
 
+### 4. Sign the manifest itself — not optional
+
+```sh
+cargo packager signer sign <feed>/luggage.json     # writes luggage.json.sig
+```
+
+Do this **last**, after every host has added its entry, because any later
+edit invalidates the signature.
+
+The artifact signature proves the bytes are ours. It says nothing about the
+*version and URL announced around them*, so without a signed manifest anyone
+who controls the feed can advertise an old signed build as a new version and
+roll clients backwards onto a release with a known flaw. Updaters therefore
+refuse an unsigned manifest by default (`require_signed_manifest`), and
+`luggage-manifest` prints the signing command as a reminder.
+
 ### Per-host artifact shapes
 
 What luggage downloads is not always what `cargo packager` emits:

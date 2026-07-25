@@ -289,23 +289,71 @@ start, but its editor can come with the broader settings work.
      two speculative fixes before checking `git log` on the remote. The
      acceptance scripts now restore both files on exit.
 
+- 2026-07-24: **H3 complete — the chip acts.** It offers `download` when a
+  version is available and `restart now` when one is staged; clicking
+  carries on from whatever state is shown. What a click does lives on
+  `UpdateStatus::action_label`, beside `summary()`, so the status decides
+  what it invites and the view cannot guess differently; every non-
+  actionable variant returns `None` and is asserted to. Headed receipts:
+  `01_update_actionable.png` (bordered chip offering the download) and
+  `02_after_click.png` (reading "0.3.0 ready, restart to finish" after a
+  real fetch and verify). The scenario's first run **failed and was right
+  to**: `settle` counts FRAMES, so `settle 25` asserted ~0.4s after the
+  click, long before a 34MB download could finish.
+- 2026-07-24: **luggage T2 + T3 landed** (mere `2e612427`).
+  - **T2, durable staging.** `Update::stage` writes the verified artifact
+    into an app-owned directory, so "ready to restart" survives the app
+    closing instead of being a claim about bytes in memory;
+    `StagedUpdate::take_verified` re-hashes at apply time, closing the
+    staging-to-apply gap. Staging requires a manifest digest and refuses
+    without one rather than storing bytes it could never re-check.
+  - **T3, the signed manifest — the downgrade gap is closed.** A detached
+    `luggage.json.sig` is verified before anything in the manifest is
+    believed, and `require_signed_manifest` defaults to **true**. Proven
+    against a real installed hocket: signed feed updates; signature removed
+    is refused with a message naming the fix; **version rewritten around a
+    valid artifact signature is refused** — that last one is the attack
+    demonstrated earlier in the day.
+  - Bug found only by the end-to-end run: the first cut base64-wrapped
+    `.sig` contents unconditionally, double-encoding what cargo-packager
+    writes (it wraps already) and rejecting good signatures. The unit test
+    passed because it used the raw `minisign -S` text — the *other*
+    convention. Both are accepted now, each with a test.
+  - Consequence for releasing: **signing the manifest is now a required
+    step**, done last because any later edit invalidates it.
+    `luggage-manifest` prints the command as a reminder, and
+    [`RELEASING.md`](RELEASING.md) carries it.
+
 ### Next
 
-- **H3 remainder: the actions.** The status is visible but not yet
-  actionable. `AppState` needs the worker handle threaded through
-  `new`/`from_project_parts` to offer "Check now", "Download", and "Restart
-  to finish". Deferred deliberately rather than bolted on with a setter.
-- **H4 remainder: the other two hosts.** Windows is done; Linux over SSH
-  (AppImage) and macOS (`.app.tar.gz`) are next, following
-  [`RELEASING.md`](RELEASING.md). The Mac needs rustup/cargo installed
-  (approved) and no longer needs .NET at all. Each host adds its entry to
-  the same `luggage.json` via `luggage-manifest`.
-- **T2 (luggage): staged-swap apply mechanics** replacing
-  installer-over-yourself, Velopack-grade, portable Rust.
-- **T3 (luggage): the P2P lane** — signed manifests + artifacts as
-  content-addressed blobs over iroh-blobs (mere-transport's BlobStore
-  exists); retinue carries manifest announcements, IP lanes carry bytes.
-- **H5: signing** — artifact authenticity is now solved (minisign is
-  built into the pipeline). Remaining is OS install trust: Developer ID +
-  notarization on the Mac (credentials exist; no signing cert installed in
-  its keychain yet), Authenticode-or-not on Windows.
+H1-H4 are done on all three hosts, and luggage T2/T3 have landed. What is
+left is either waiting on Mark or genuinely optional.
+
+- **H5, OS install trust — the only thing blocking a public release.**
+  Artifact *and* manifest authenticity are solved in-pipeline; this is the
+  separate job of not being warned at by the OS at install time.
+  - *macOS*: Mark holds Apple Developer Program membership. Needs a
+    **Developer ID Application** certificate created and installed on the
+    Mac (the keychain there still reports 0 identities), plus
+    `xcrun notarytool store-credentials` for an app-specific password.
+    Then `signing-identity` in hocket-genet's manifest and
+    `APPLE_KEYCHAIN_PROFILE` at pack time; verify with `spctl -a -vv`.
+  - *Windows*: a purchasing decision. Azure Trusted Signing ($9.99/mo,
+    open to Merely LLC as a US business, supported by `cargo-packager`) or
+    a traditional EV certificate ($400–900/yr). Unsigned still installs;
+    users just meet SmartScreen.
+- **The P2P distribution lane** (was filed under T3, still unbuilt):
+  artifacts as content-addressed blobs over iroh-blobs, so a machine
+  holding v0.1 fetches only the chunks v0.2 changed — delta efficiency
+  from the addressing rather than a patch format. mere-transport's
+  `BlobStore` already speaks the ALPN. Retinue/mesh carries manifest
+  announcements only; IP lanes carry bytes. The manifest already has the
+  BLAKE3 field this needs.
+- **Real releases, once signing lands**: publish a feed (GitHub Releases +
+  `github:owner/repo`) instead of the local directory feeds used for
+  acceptance, and sign from one place with one key — the three per-host
+  acceptance keys are a test artefact.
+- **Optional polish**: hocket's `Cargo.lock`-dirties-then-blocks-pull
+  friction across the release machines; a settings UI for the update
+  policy (the policy is real, only its editor is missing); ShortTtl
+  relock enforcement; Velopack retirement once luggage has run a while.
