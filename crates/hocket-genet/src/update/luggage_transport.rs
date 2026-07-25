@@ -68,6 +68,12 @@ impl LuggageTransport {
             feeds: vec![Feed::parse(feed).map_err(|e| e.to_string())?],
             pubkey: pubkey.to_string(),
             windows: None,
+            // Everything else from the secure defaults, which is how
+            // `require_signed_manifest` stays true here. Spelling the rest out
+            // is what let that field arrive unset; taking them from Default
+            // means a new security control lands switched on rather than
+            // breaking the build and tempting a hand-written `false`.
+            ..Config::default()
         })
     }
 }
