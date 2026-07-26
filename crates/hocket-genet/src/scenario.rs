@@ -1,4 +1,4 @@
-//! The self-drive scenario lane, adopted from merecat.
+//! The self-drive scenario lane, adopted from turnstone.
 //!
 //! Hocket drives ITSELF from a scenario file, so a headed receipt needs no OS
 //! synthetic input: no focus race, no key theft while a human uses the machine.

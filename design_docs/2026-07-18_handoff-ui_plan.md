@@ -190,7 +190,7 @@ Organized by feature target and validation, not by time.
   and migrate onto the shared service at its P0/P1. arboard is MIT/Apache and
   already in the family (genet), so this extends a blessed dependency.
 - 2026-07-18: **Headed receipt via the genet-probe harness.** hocket-genet
-  adopted genet-probe (Automatable + Driveable) and a merecat-style self-drive
+  adopted genet-probe (Automatable + Driveable) and a turnstone-style self-drive
   scenario lane (`HOCKET_SCENARIO`, self-capture to PNG, `RESULT ok|fail`
   receipt, exits without saving). `scenarios/handoff_circle.scn` asserts the
   collaboration controls (Copy token, Paste recipient, Receive) are present in
