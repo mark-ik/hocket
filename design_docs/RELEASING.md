@@ -195,8 +195,32 @@ xcrun notarytool store-credentials "hocket-notary" \
 ```
 
 Then pack with `APPLE_KEYCHAIN_PROFILE=hocket-notary` set (or
-`APPLE_ID` + `APPLE_PASSWORD` + `APPLE_TEAM_ID`). Verify the result the way
-Gatekeeper will:
+`APPLE_ID` + `APPLE_PASSWORD` + `APPLE_TEAM_ID`).
+
+**Notarization uploads to Apple and waits for a verdict — minutes of
+silence is normal.** Do not pipe the pack through `tail`/`head` while
+waiting: they buffer until the command exits, so a working notarization
+looks exactly like a hung one (it fooled us on 2026-07-26; `ps` showed
+`notarytool` alive and working the whole time). Let the output stream.
+
+**A first submission from a new Developer ID can sit "In Progress" for
+hours.** Apple holds uploads it does not recognise for deeper analysis, and
+says the wait shrinks as a team notarizes more. Ours took over an hour on
+the first try with no verdict. This is not a failure and there is nothing
+to fix; treat it as asynchronous:
+
+- The submission processes **on Apple's side**. Interrupting `notarytool`
+  only kills the local wait — the upload keeps going, which is how we ended
+  up with two queued submissions of the same app. Harmless, but do not
+  re-submit expecting to unstick it.
+- No re-pack is needed later. The `.app` is already signed; a ticket is
+  attached afterwards with `xcrun stapler staple`, or by re-running
+  `~/mac-notary-finish.sh`, which waits, staples and verifies.
+- `notarytool log <id>` reporting "not yet available" means *no verdict
+  yet*, not a rejection. Do not read a missing staple as a rejection either
+  (we did, briefly): check `notarytool info <id>` for the actual status.
+
+Verify the result the way Gatekeeper will:
 
 ```sh
 codesign -dvv Hocket.app          # identity + hardened runtime
