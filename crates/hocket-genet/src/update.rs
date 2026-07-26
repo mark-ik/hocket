@@ -224,18 +224,6 @@ impl UpdateStatus {
         }
     }
 
-    /// Whether a check is worth offering now.
-    ///
-    /// False while one is in flight, and false when the installation cannot
-    /// update at all: offering an action that is guaranteed to fail is the
-    /// dishonest-UI failure mode this type exists to avoid.
-    pub fn can_check(&self) -> bool {
-        !matches!(
-            self,
-            Self::Checking | Self::Downloading { .. } | Self::Disabled | Self::Unsupported(_)
-        )
-    }
-
     /// What clicking this status would do, if anything.
     ///
     /// The status knows what it invites, so the label and the action stay in
@@ -250,13 +238,6 @@ impl UpdateStatus {
         }
     }
 
-    /// The version staged and awaiting a restart, if any.
-    pub fn staged_version(&self) -> Option<&str> {
-        match self {
-            Self::ReadyToRestart { version } => Some(version),
-            _ => None,
-        }
-    }
 }
 
 /// What a check found.
@@ -423,7 +404,8 @@ mod tests {
         // stages and offers.
         let status = after_download(settings(UpdatePolicy::Automatic), "0.2.0".into());
         assert_eq!(status, UpdateStatus::ReadyToRestart { version: "0.2.0".into() });
-        assert_eq!(status.staged_version(), Some("0.2.0"));
+        // Offered, not forced: the restart is the user's click.
+        assert_eq!(status.action_label(), Some("restart now"));
     }
 
     #[test]
@@ -446,7 +428,9 @@ mod tests {
         let status = UpdateStatus::Unsupported(Unsupported::NotInstalled);
         let summary = status.summary();
         assert!(summary.contains("not an installed build"), "got: {summary}");
-        assert!(!status.can_check());
+        // And offers no action: a click that is guaranteed to fail is the
+        // dishonest-UI failure mode this type exists to avoid.
+        assert_eq!(status.action_label(), None);
     }
 
     #[test]
@@ -474,14 +458,6 @@ mod tests {
         ] {
             assert_eq!(status.action_label(), None, "{status:?} must not be clickable");
         }
-    }
-
-    #[test]
-    fn checks_are_not_offered_while_one_is_in_flight() {
-        assert!(!UpdateStatus::Checking.can_check());
-        assert!(!UpdateStatus::Downloading { version: "0.2.0".into() }.can_check());
-        assert!(UpdateStatus::Idle.can_check());
-        assert!(UpdateStatus::Available { version: "0.2.0".into() }.can_check());
     }
 
     #[test]

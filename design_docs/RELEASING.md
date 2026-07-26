@@ -159,10 +159,58 @@ before packing. Do not "simplify" it away.
 ./target/release/hocket-genet --update-now | head -1   # must print the new version
 ```
 
+## macOS: Gatekeeper (a different job from the signatures above)
+
+The minisign signatures prove the update bytes and the manifest are ours.
+Code signing and notarization are what stop macOS warning the user at
+install. Both are wanted; neither replaces the other.
+
+The signing identity is in `crates/hocket-genet/Cargo.toml`
+(`[package.metadata.packager.macos] signing-identity`) and must match
+`security find-identity -v -p codesigning` on the signing Mac exactly.
+Packing then signs automatically.
+
+**Cut macOS releases in Terminal.app on the Mac, not over SSH.** `codesign`
+needs the login keychain, and an SSH session can neither unlock it nor
+prompt you, so it fails with:
+
+```text
+errSecInternalComponent            # from codesign
+User interaction is not allowed.   # from `security`
+```
+
+That is macOS working as designed, not a misconfiguration. `~/mac-release.sh`
+on the Mac does the whole run (identity check, pack, notarize, staple,
+verify); the first run asks permission to use the signing key — choose
+**Always Allow**. Automating this later means a dedicated CI keychain with
+the certificate imported from a `.p12` and unlocked from a secret, not this
+machine's login keychain.
+
+Notarization needs credentials, which are secrets and so come from the
+environment. Store them once per machine:
+
+```sh
+xcrun notarytool store-credentials "hocket-notary" \
+  --apple-id "<apple id>" --team-id "<TEAMID>" --password "<app-specific-password>"
+```
+
+Then pack with `APPLE_KEYCHAIN_PROFILE=hocket-notary` set (or
+`APPLE_ID` + `APPLE_PASSWORD` + `APPLE_TEAM_ID`). Verify the result the way
+Gatekeeper will:
+
+```sh
+codesign -dvv Hocket.app          # identity + hardened runtime
+spctl -a -vv Hocket.app           # "accepted", source=Notarized Developer ID
+```
+
+An app that is signed but *not* notarized still trips Gatekeeper on another
+Mac, so `spctl` is the check that matters — not `codesign` alone.
+
 ## What is not automated yet
 
-- OS install trust: Authenticode (Windows) and Developer ID + notarization
-  (macOS). The minisign signature above is *artifact* authenticity, which is
-  a different job; see mere's auto-update brief.
-- Publishing the feed (upload to GitHub Releases / a host).
-- The macOS and Linux legs have not been run end to end yet.
+- Windows Authenticode: a purchasing decision (Azure Trusted Signing, or an
+  EV certificate). Unsigned still installs; users meet SmartScreen.
+- Publishing the feed (upload to GitHub Releases / a host) — the acceptance
+  runs used local directory feeds.
+- One signing key in one place: the per-host acceptance keypairs are a test
+  artefact, since a client trusts exactly one public key.
