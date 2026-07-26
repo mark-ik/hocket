@@ -33,6 +33,18 @@ icons = ["icons/icon.png"]
 # rebuild; it costs one crate's compile, not the dependency tree's.
 before-packaging-command = "cargo clean -p hocket-genet --release && cargo build --release -p hocket-genet"
 
+# macOS code signing (2026-07-24). This is OS *install trust* — Gatekeeper
+# not warning at install — and is a different job from the minisign
+# signatures luggage checks, which prove the update bytes and manifest are
+# ours. Both are wanted.
+#
+# The identity must match `security find-identity -v -p codesigning` on the
+# signing Mac exactly. Notarization credentials cannot live here (they are
+# secrets); cargo-packager reads them from APPLE_KEYCHAIN_PROFILE, or
+# APPLE_ID + APPLE_PASSWORD + APPLE_TEAM_ID.
+[package.metadata.packager.macos]
+signing-identity = "Developer ID Application: Mark Boykim (HWVZ5S7ACJ)"
+
 [dependencies]
 # AccessKit tree/action types for the a11y bridge (genet_winit_host::AccessKitBridge).
 accesskit = { workspace = true }
