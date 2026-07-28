@@ -51,6 +51,13 @@ hot-plug refresh remain follow-ups.
 Start with [design_docs/DOC_README.md](design_docs/DOC_README.md) for the
 authoritative project and planning documents.
 
+## Screenshot
+
+<p align="center">
+  <img src="assets/screenshots/circle.png" alt="Hocket's empty four-track looper-pedal circle with the central Record control" width="1100"><br>
+  <sub>The looper-pedal profile starts with four empty tracks and a central Record control.</sub>
+</p>
+
 ## Profiles
 
 - Looper-pedal, the default: four tracks, layered overdub, optional master
