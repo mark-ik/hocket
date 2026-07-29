@@ -45,7 +45,7 @@ personae = { git = "https://github.com/mark-ik/mere.git", branch = "main", versi
 # importable, wasm-capable .wv instead of WAV. `encode` is on because Hocket
 # both writes and reads media; MediaRef identity stays Hocket's BLAKE3 over the
 # decoded f32 samples, unchanged by the codec swap.
-wavicle = { git = "https://github.com/mark-ik/wavicle.git", branch = "main", version = "0.1.0", features = ["encode"] }
+wavicle = { git = "https://github.com/merely-made/wavicle.git", branch = "main", version = "0.1.0", features = ["encode"] }
 
 # Firewheel: modular audio graph engine, the spine of hocket-engine
 # (FT3b-prime). cpal feature enables the default native backend; the
@@ -88,9 +88,9 @@ genet-winit-host = { git = "https://github.com/mark-ik/genet.git", branch = "mai
 genet-clipboard = { git = "https://github.com/mark-ik/genet.git", branch = "main" }
 genet-probe = { git = "https://github.com/mark-ik/genet.git", branch = "main" }
 image = { version = "0.25", default-features = false, features = ["png"] }
-netrender = { git = "https://github.com/mark-ik/netrender.git", branch = "main" }
-paint_list_api = { git = "https://github.com/mark-ik/netrender.git", branch = "main" }
-paint_list_render = { git = "https://github.com/mark-ik/netrender.git", branch = "main" }
+netrender = { git = "https://github.com/merely-made/netrender.git", branch = "main" }
+paint_list_api = { git = "https://github.com/merely-made/netrender.git", branch = "main" }
+paint_list_render = { git = "https://github.com/merely-made/netrender.git", branch = "main" }
 # Host-side surface/compose types only; backend features come from
 # netrender's per-target split. Single wgpu 29 tree now the Masonry app
 # (wgpu 28) is retired.

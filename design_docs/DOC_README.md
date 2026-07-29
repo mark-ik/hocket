@@ -83,7 +83,7 @@ before any other doc in this directory.
   pure-Rust codec for it (wavicle) was built to do it.
 - **WavPack codec — founded as wavicle, wired into Hocket.** The pure-Rust
   WavPack codec was founded 2026-07-15 as **wavicle**
-  (github.com/mark-ik/wavicle). Its plan lives in that repo's `design_docs/`; the
+  (github.com/merely-made/wavicle). Its plan lives in that repo's `design_docs/`; the
   pre-founding copy is archived at
   [archive_docs/2026-07-15/](archive_docs/2026-07-15/2026-07-15_wavpack_codec_plan.md).
   M6 landed 2026-07-18: `project_store` media is now `.wv` via
