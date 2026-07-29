@@ -1,7 +1,7 @@
 # Releasing Hocket
 
 The pipeline is Rust end to end: [`cargo-packager`](https://crates.io/crates/cargo-packager)
-builds the installer, [`luggage`](https://github.com/mark-ik/mere/tree/main/crates/system/luggage)
+builds the installer, [`luggage`](https://github.com/merely-made/mere/tree/main/crates/system/luggage)
 (mere) checks the feed and applies the update. No .NET, on any host.
 
 Verified on Windows 2026-07-24 (see the auto-update plan's H4 receipts).

@@ -36,11 +36,11 @@ audio-primitives = { git = "https://github.com/mark-ik/woodshed.git", branch = "
 
 # Portable durable-byte seam shared with Woodshed and Isometry. Hocket keeps
 # its own model and MediaRef identity; muniment owns backend mechanics.
-muniment = { git = "https://github.com/mark-ik/mere.git", branch = "main", version = "0.1.0", default-features = false }
-armillary = { git = "https://github.com/mark-ik/mere.git", branch = "main", version = "0.1.0" }
+muniment = { git = "https://github.com/merely-made/mere.git", branch = "main", version = "0.1.0", default-features = false }
+armillary = { git = "https://github.com/merely-made/mere.git", branch = "main", version = "0.1.0" }
 # Identity root for signed, recipient-bound hand-off envelopes. This is a
 # host-agnostic protocol dependency, not project/session state.
-personae = { git = "https://github.com/mark-ik/mere.git", branch = "main", version = "0.1.0" }
+personae = { git = "https://github.com/merely-made/mere.git", branch = "main", version = "0.1.0" }
 # Pure-Rust WavPack codec (repos/wavicle). Stores .hock media as lossless,
 # importable, wasm-capable .wv instead of WAV. `encode` is on because Hocket
 # both writes and reads media; MediaRef identity stays Hocket's BLAKE3 over the
@@ -79,14 +79,14 @@ winit = "0.30"
 # clean checkout (the Linux box), which is the only place it shows: a dev
 # machine's gitignored patch file redirects these to local checkouts that
 # git-dep netrender, unifying the graph by accident.
-cambium = { git = "https://github.com/mark-ik/genet.git", branch = "main" }
-sprigging = { git = "https://github.com/mark-ik/genet.git", branch = "main" }
-layout-dom-api = { git = "https://github.com/mark-ik/genet.git", branch = "main", version = "=0.1.0" }
-genet-scripted-dom = { git = "https://github.com/mark-ik/genet.git", branch = "main", version = "=0.1.0" }
-genet-layout = { git = "https://github.com/mark-ik/genet.git", branch = "main" }
-genet-winit-host = { git = "https://github.com/mark-ik/genet.git", branch = "main" }
-genet-clipboard = { git = "https://github.com/mark-ik/genet.git", branch = "main" }
-genet-probe = { git = "https://github.com/mark-ik/genet.git", branch = "main" }
+cambium = { git = "https://github.com/merely-made/genet.git", branch = "main" }
+sprigging = { git = "https://github.com/merely-made/genet.git", branch = "main" }
+layout-dom-api = { git = "https://github.com/merely-made/genet.git", branch = "main", version = "=0.1.0" }
+genet-scripted-dom = { git = "https://github.com/merely-made/genet.git", branch = "main", version = "=0.1.0" }
+genet-layout = { git = "https://github.com/merely-made/genet.git", branch = "main" }
+genet-winit-host = { git = "https://github.com/merely-made/genet.git", branch = "main" }
+genet-clipboard = { git = "https://github.com/merely-made/genet.git", branch = "main" }
+genet-probe = { git = "https://github.com/merely-made/genet.git", branch = "main" }
 image = { version = "0.25", default-features = false, features = ["png"] }
 netrender = { git = "https://github.com/merely-made/netrender.git", branch = "main" }
 paint_list_api = { git = "https://github.com/merely-made/netrender.git", branch = "main" }
@@ -98,14 +98,14 @@ wgpu = { version = "29", default-features = false, features = ["std"] }
 # Pure OKLCH seed-to-palette theming (shared; woodshed's too). A genet
 # component; the standalone mirror repo retires with the 2026-07-23
 # consolidation.
-tinct = { git = "https://github.com/mark-ik/genet.git", branch = "main" }
+tinct = { git = "https://github.com/merely-made/genet.git", branch = "main" }
 
 # Auto-update (2026-07-24 auto-update plan). Luggage is the family's update
 # pipeline (the cargo-packager-updater fork living in mere; ruled 2026-07-24):
 # signed manifests over pluggable feeds, packed with upstream's cargo-packager
 # CLI, Rust everywhere. Velopack stays wired as the A/B alternative
 # (HOCKET_UPDATE_TRANSPORT=velopack) until one of the two retires.
-luggage = { git = "https://github.com/mark-ik/mere.git", branch = "main" }
+luggage = { git = "https://github.com/merely-made/mere.git", branch = "main" }
 velopack = "1.2.0"
 
 # Audio I/O + DSP
@@ -138,8 +138,8 @@ tokio = { version = "1.50", features = ["rt", "rt-multi-thread", "time", "sync"]
 # needs (patches are per-workspace-root, not inherited through git deps —
 # woodshed carries the same mirror). Keep in sync with genet's fork pins.
 [patch.crates-io]
-layout-dom-api = { git = "https://github.com/mark-ik/genet.git", branch = "main", version = "=0.1.0" }
-genet-scripted-dom = { git = "https://github.com/mark-ik/genet.git", branch = "main", version = "=0.1.0" }
+layout-dom-api = { git = "https://github.com/merely-made/genet.git", branch = "main", version = "=0.1.0" }
+genet-scripted-dom = { git = "https://github.com/merely-made/genet.git", branch = "main", version = "=0.1.0" }
 # Deliberately NO netrender patches here: `[patch.crates-io]` does not
 # redirect a published crate's own registry dependency (tried 2026-07-24 —
 # the crates.io `paint_list_api` stayed in the graph). Taking cambium and
