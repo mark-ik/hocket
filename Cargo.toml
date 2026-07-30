@@ -13,7 +13,7 @@ members = [
 edition = "2024"
 license = "MIT OR Apache-2.0"
 authors = ["Mark <sgt.mark3@gmail.com>"]
-repository = "https://github.com/mark-ik/hocket"
+repository = "https://github.com/merely-made/hocket"
 rust-version = "1.96"
 
 [workspace.dependencies]
@@ -32,7 +32,7 @@ hocket-model = { path = "crates/hocket-model", version = "0.1.0" }
 # path-dep. hocket-engine's click loop calls the shared click synth;
 # the onset/tempo + latency cores are here for FT3c (calibration) and
 # bar-alignment work. Pure std, no engine/UI coupling.
-audio-primitives = { git = "https://github.com/mark-ik/woodshed.git", branch = "main", version = "0.1.0" }
+audio-primitives = { git = "https://github.com/merely-made/woodshed.git", branch = "main", version = "0.1.0" }
 
 # Portable durable-byte seam shared with Woodshed and Isometry. Hocket keeps
 # its own model and MediaRef identity; muniment owns backend mechanics.

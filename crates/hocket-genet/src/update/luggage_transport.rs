@@ -180,7 +180,7 @@ mod tests {
         // The test binary itself runs from target/, so the heuristic must
         // say "dev build" right here.
         assert!(!is_installed());
-        let t = transport(Some("github:mark-ik/hocket"), Some("pk"), false);
+        let t = transport(Some("github:merely-made/hocket"), Some("pk"), false);
         assert_eq!(t.availability(), Err(Unsupported::NotInstalled));
     }
 
@@ -195,7 +195,7 @@ mod tests {
 
     #[test]
     fn feed_and_pubkey_on_an_installed_build_is_available() {
-        let t = transport(Some("github:mark-ik/hocket"), Some("pk"), true);
+        let t = transport(Some("github:merely-made/hocket"), Some("pk"), true);
         assert_eq!(t.availability(), Ok(()));
     }
 
