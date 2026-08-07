@@ -6,9 +6,11 @@
 //! in the plan's H4 drive. It is also genuinely useful on its own: a
 //! scriptable update for a machine that is not in front of anyone.
 //!
-//! It respects the same policy the GUI does, so `HOCKET_UPDATE_POLICY=notify`
-//! reports an available version without fetching it, exactly as the app
-//! would.
+//! It respects the same policy the GUI does — both load it from the same
+//! `update-settings.json` through `UpdateSettingsProvider` — so a `notify`
+//! policy reports an available version without fetching it, exactly as the app
+//! would. Point `HOCKET_SETTINGS` at another file to run against an isolated
+//! policy.
 
 use super::{
     CheckOutcome, NextStep, UpdateSettings, UpdateStatus, UpdateTransport, after_download, decide,
@@ -70,7 +72,10 @@ pub fn run_update_now<T: UpdateTransport>(transport: T, settings: UpdateSettings
             // Honest: this policy found something and is not allowed to fetch
             // it. Say so, and say what would.
             println!("{}", UpdateStatus::Available { version }.summary());
-            println!("policy {} does not download; re-run with {}=automatic to apply", settings.policy.as_str(), super::POLICY_ENV);
+            println!(
+                "policy {} does not download; change the device update setting to Automatic to apply",
+                settings.policy.as_str()
+            );
             0
         }
         NextStep::Download(version) => {

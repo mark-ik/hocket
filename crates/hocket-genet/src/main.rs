@@ -434,10 +434,14 @@ impl ApplicationHandler<HostEvent> for App {
             .take()
             .expect("update worker initialized");
         let identity = LocalIdentity::open_default().map_err(|error| error.to_string());
+        let update_settings = update::UpdateSettingsProvider::load_or_default(
+            update::settings_path(),
+        )
+        .settings();
         let runner = Runner::new(
             dom,
             root as fn(&AppState) -> Child,
-            AppState::new(worker, update_worker, identity),
+            AppState::new(worker, update_worker, update_settings, identity),
         );
 
         // Bootstrap the adapter from the real initial view before Windows sees
@@ -573,7 +577,9 @@ fn main() {
     // update cycle can be proven (and scripted) without clicking through a
     // GUI. Same policy the app uses.
     if std::env::args().any(|arg| arg == "--update-now") {
-        let code = update::cli::run_update_now(build_transport(), update::UpdateSettings::from_env());
+        let settings = update::UpdateSettingsProvider::load_or_default(update::settings_path())
+            .settings();
+        let code = update::cli::run_update_now(build_transport(), settings);
         std::process::exit(code);
     }
 
@@ -590,7 +596,8 @@ fn main() {
     // The updater is I/O, so it lives off the UI thread like project work.
     let (update_worker, update_statuses) =
         update::worker::spawn_update_worker(wake, build_transport());
-    let update_settings = update::UpdateSettings::from_env();
+    let update_settings = update::UpdateSettingsProvider::load_or_default(update::settings_path())
+        .settings();
     if update_settings.policy.checks() {
         update_worker.command(update::worker::UpdateCommand::Check {
             settings: update_settings,

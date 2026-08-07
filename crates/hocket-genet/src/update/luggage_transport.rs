@@ -91,7 +91,13 @@ fn is_installed() -> bool {
         return false;
     };
     let path = exe.to_string_lossy().replace('\\', "/");
-    !(path.contains("/target/debug/") || path.contains("/target/release/"))
+    // Cargo's target directory is configurable (this workspace uses a shared
+    // `graphshell-target` directory), so the test-binary `debug/deps` shape
+    // is the stable dev-build receipt rather than the literal folder name.
+    !(path.contains("/target/debug/")
+        || path.contains("/target/release/")
+        || path.contains("/debug/deps/")
+        || path.contains("/release/deps/"))
 }
 
 impl UpdateTransport for LuggageTransport {

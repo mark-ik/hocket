@@ -96,8 +96,17 @@ and upload `luggage.json` as a release asset so `github:owner/repo` finds it.
 ```sh
 export HOCKET_UPDATE_FEED=<dir | https://… | github:owner/repo>
 export HOCKET_UPDATE_PUBKEY=$(cat hocket.key.pub)
-export HOCKET_UPDATE_POLICY=automatic     # off | notify | download-then-ask | automatic
 hocket-genet --update-now                 # or just launch the app
+```
+
+The policy is a stored device setting now, not an environment variable:
+`update-settings.json` holds `policy` (`off` | `notify` | `download-then-ask` |
+`automatic`), `channel`, and `check_interval_secs`. `HOCKET_UPDATE_POLICY` is
+no longer read. To run against an isolated policy without touching the real
+file, point `HOCKET_SETTINGS` at a scratch path:
+
+```sh
+export HOCKET_SETTINGS=/tmp/hocket-release-check/update-settings.json
 ```
 
 `--update-now` runs the flow in the terminal and prints each real state; the

@@ -129,6 +129,7 @@ impl AppState {
     pub fn new(
         project_worker: ActorHandle<ProjectCommand>,
         update_worker: ActorHandle<crate::update::worker::UpdateCommand>,
+        update_settings: crate::update::UpdateSettings,
         identity: Result<LocalIdentity, String>,
     ) -> Self {
         Self::from_project_parts(
@@ -138,6 +139,7 @@ impl AppState {
             BTreeSet::new(),
             project_worker,
             update_worker,
+            update_settings,
             identity,
         )
     }
@@ -150,6 +152,7 @@ impl AppState {
         missing_media: BTreeSet<MediaRef>,
         project_worker: ActorHandle<ProjectCommand>,
         update_worker: ActorHandle<crate::update::worker::UpdateCommand>,
+        update_settings: crate::update::UpdateSettings,
         identity: Result<LocalIdentity, String>,
     ) -> Self {
         let audio_devices = available_audio_devices();
@@ -179,7 +182,7 @@ impl AppState {
             project_status: ProjectStatus::Idle,
             project_worker,
             update_status: crate::update::UpdateStatus::Idle,
-            update_settings: crate::update::UpdateSettings::from_env(),
+            update_settings,
             update_worker,
             identity,
             clipboard: SystemClipboard::new().ok(),

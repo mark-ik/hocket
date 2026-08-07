@@ -192,7 +192,9 @@ start, but its editor can come with the broader settings work.
 - Supporting pieces landed with the run: `--update-now` (runs the flow in
   the terminal and prints each real state, so a GUI app's update cycle can
   be proven and scripted; honours the policy, so `notify` reports without
-  fetching), `HOCKET_UPDATE_POLICY` as the interim policy setting, and
+  fetching), `HOCKET_UPDATE_POLICY` as the interim policy setting (retired
+  2026-08-06 — the policy is a stored device setting now, see the
+  [update-settings persistence plan](2026-08-06_update_settings_persistence_plan.md)), and
   `luggage-manifest` (Rust, so it runs on every host; merges per-platform
   entries into one manifest so a release is assembled host by host).
   Packaging metadata (`product-name`, identifier, publisher) is in

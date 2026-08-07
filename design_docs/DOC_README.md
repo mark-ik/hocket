@@ -53,8 +53,19 @@ before any other doc in this directory.
   incoming staging and review in the circle, and same-session or new-session
   acceptance. Cleartext carrier, stated honestly; encryption and a network
   carrier are later.
+- [2026-08-06_update_settings_persistence_plan.md](2026-08-06_update_settings_persistence_plan.md)
+  - **LANDED.** Update policy becomes a stored device setting. `UpdateSettings`
+  persists to `update-settings.json` through `UpdateSettingsProvider` (atomic
+  tmp + rename) and is described at the `pelt/update` reference on Genet's
+  settings contract; the app and `--update-now` load the same file, so they
+  cannot disagree. Retires the interim `HOCKET_UPDATE_POLICY` env var, which is
+  no longer read; `HOCKET_SETTINGS` overrides the file for isolated runs.
+  Hocket's slice of Mere's cross-product
+  [configuration ownership umbrella](../../mere/design_docs/mere_docs/implementation_strategy/2026-08-06_configuration_ownership_settings_projection_plan.md)
+  (its C5).
 - [2026-07-24_auto-update_plan.md](2026-07-24_auto-update_plan.md)
-  - **H1-H4 (Windows) LANDED.** Configurable auto-update: a platform-neutral
+  - **H1-H4 (Windows) LANDED**; its interim `HOCKET_UPDATE_POLICY` env setting
+  retired 2026-08-06 by the update-settings plan above. Configurable auto-update: a platform-neutral
   policy/status layer (four real policies, a status variant per real state,
   no placebo spinner) over an `UpdateTransport` seam, driven by an armillary
   worker off the UI thread. Default transport is **luggage** (mere's

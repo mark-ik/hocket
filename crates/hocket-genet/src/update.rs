@@ -22,12 +22,21 @@ pub mod velopack_transport;
 pub mod worker;
 
 use std::fmt;
+use std::io;
+use std::path::{Path, PathBuf};
+
+use genet_host_api::settings::{
+    SettingControl, SettingMovement, SettingMutability, SettingOption, SettingScope,
+    SettingSecurity, SettingSpec, SettingValue, SettingsError, SettingsProvider,
+};
+use genet_host_api::tile::SettingsRef;
+use serde::{Deserialize, Serialize};
 
 /// Environment variable naming the release feed, shared by every transport.
 pub const FEED_ENV: &str = "HOCKET_UPDATE_FEED";
 
 /// How much the app may do on its own.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub enum UpdatePolicy {
     /// Never check. The user updates manually or their package manager does.
     Off,
@@ -79,7 +88,7 @@ impl UpdatePolicy {
 }
 
 /// Which release stream to follow.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub enum UpdateChannel {
     /// Released builds.
     #[default]
@@ -99,7 +108,7 @@ impl UpdateChannel {
 }
 
 /// The user's update settings.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct UpdateSettings {
     /// How much the app may do on its own.
     pub policy: UpdatePolicy,
@@ -121,23 +130,195 @@ impl Default for UpdateSettings {
     }
 }
 
-/// Environment variable overriding the update policy.
-pub const POLICY_ENV: &str = "HOCKET_UPDATE_POLICY";
+/// Explicit override for the device settings file, useful for isolated runs.
+pub const SETTINGS_PATH_ENV: &str = "HOCKET_SETTINGS";
 
-impl UpdateSettings {
-    /// Settings with [`POLICY_ENV`] applied over the defaults.
-    ///
-    /// The interim persistence layer: policy is a real setting from the
-    /// start, but its editor and its settings file come with the broader
-    /// settings work. An unreadable value falls back to the default rather
-    /// than silently disabling updates.
-    pub fn from_env() -> Self {
-        let mut settings = Self::default();
-        if let Ok(value) = std::env::var(POLICY_ENV) {
-            settings.policy = UpdatePolicy::from_str_or_default(value.trim());
-        }
-        settings
+pub const UPDATE_REFERENCE: &str = "pelt/update";
+
+/// The device-local settings file replacing the interim policy environment
+/// variable. The owner remains `UpdateSettings`; the provider only supplies
+/// the settings projection and persistence boundary.
+#[derive(Clone, Debug)]
+pub struct UpdateSettingsProvider {
+    path: PathBuf,
+    settings: UpdateSettings,
+}
+
+impl UpdateSettingsProvider {
+    pub fn load(path: impl Into<PathBuf>) -> io::Result<Self> {
+        let path = path.into();
+        let settings = match std::fs::read_to_string(&path) {
+            Ok(contents) => serde_json::from_str(&contents).map_err(|error| {
+                io::Error::new(io::ErrorKind::InvalidData, format!("invalid update settings: {error}"))
+            })?,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => UpdateSettings::default(),
+            Err(error) => return Err(error),
+        };
+        Ok(Self { path, settings })
     }
+
+    pub fn load_or_default(path: impl Into<PathBuf>) -> Self {
+        let path = path.into();
+        match Self::load(&path) {
+            Ok(provider) => provider,
+            Err(error) => {
+                eprintln!("[hocket] ignoring update settings: {error}");
+                Self {
+                    path,
+                    settings: UpdateSettings::default(),
+                }
+            }
+        }
+    }
+
+    pub fn settings(&self) -> UpdateSettings {
+        self.settings
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    fn save(&self, settings: &UpdateSettings) -> io::Result<()> {
+        if let Some(parent) = self.path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let tmp = self.path.with_extension("json.tmp");
+        let contents = serde_json::to_vec_pretty(settings).map_err(|error| {
+            io::Error::new(io::ErrorKind::InvalidData, format!("serialize update settings: {error}"))
+        })?;
+        std::fs::write(&tmp, contents)?;
+        std::fs::rename(tmp, &self.path)
+    }
+}
+
+fn option(value: &str, label: &str) -> SettingOption {
+    SettingOption {
+        value: value.into(),
+        label: label.into(),
+    }
+}
+
+impl SettingsProvider for UpdateSettingsProvider {
+    fn describe(&self, reference: &SettingsRef) -> Result<Vec<SettingSpec>, SettingsError> {
+        if reference.0 != UPDATE_REFERENCE {
+            return Err(SettingsError::UnsupportedReference(reference.clone()));
+        }
+        Ok(vec![
+            SettingSpec {
+                id: "update.policy".into(),
+                label: "Update policy".into(),
+                scope: SettingScope::Device,
+                movement: SettingMovement::LocalOnly,
+                mutability: SettingMutability::StartupOnly,
+                security: SettingSecurity::Ordinary,
+                control: SettingControl::Choice {
+                    options: vec![
+                        option("off", "Off"),
+                        option("notify", "Notify only"),
+                        option("download-then-ask", "Download then ask"),
+                        option("automatic", "Automatic"),
+                    ],
+                },
+                value: SettingValue::Text(self.settings.policy.as_str().into()),
+            },
+            SettingSpec {
+                id: "update.channel".into(),
+                label: "Update channel".into(),
+                scope: SettingScope::Device,
+                movement: SettingMovement::LocalOnly,
+                mutability: SettingMutability::StartupOnly,
+                security: SettingSecurity::Ordinary,
+                control: SettingControl::Choice {
+                    options: vec![option("stable", "Stable"), option("beta", "Beta")],
+                },
+                value: SettingValue::Text(self.settings.channel.as_str().into()),
+            },
+            SettingSpec {
+                id: "update.check_interval_secs".into(),
+                label: "Check interval (seconds)".into(),
+                scope: SettingScope::Device,
+                movement: SettingMovement::LocalOnly,
+                mutability: SettingMutability::StartupOnly,
+                security: SettingSecurity::Ordinary,
+                control: SettingControl::Number {
+                    min: Some(300.0),
+                    max: Some(604_800.0),
+                    step: Some(300.0),
+                },
+                value: SettingValue::Integer(self.settings.check_interval_secs as i64),
+            },
+        ])
+    }
+
+    fn apply(
+        &mut self,
+        reference: &SettingsRef,
+        setting_id: &str,
+        value: SettingValue,
+    ) -> Result<(), SettingsError> {
+        if reference.0 != UPDATE_REFERENCE {
+            return Err(SettingsError::UnsupportedReference(reference.clone()));
+        }
+        let mut next = self.settings;
+        match (setting_id, value) {
+            ("update.policy", SettingValue::Text(value)) => {
+                next.policy = UpdatePolicy::from_str_or_default(&value);
+                if value != next.policy.as_str() {
+                    return Err(SettingsError::InvalidValue {
+                        setting_id: setting_id.into(),
+                        message: format!("unknown policy {value}"),
+                    });
+                }
+            }
+            ("update.channel", SettingValue::Text(value)) => {
+                next.channel = match value.as_str() {
+                    "stable" => UpdateChannel::Stable,
+                    "beta" => UpdateChannel::Beta,
+                    _ => {
+                        return Err(SettingsError::InvalidValue {
+                            setting_id: setting_id.into(),
+                            message: format!("unknown channel {value}"),
+                        });
+                    }
+                };
+            }
+            ("update.check_interval_secs", SettingValue::Integer(value))
+                if (300..=604_800).contains(&value) =>
+            {
+                next.check_interval_secs = value as u64;
+            }
+            ("update.check_interval_secs", SettingValue::Integer(value)) => {
+                return Err(SettingsError::InvalidValue {
+                    setting_id: setting_id.into(),
+                    message: format!("interval {value} is outside 300..=604800"),
+                });
+            }
+            (_, _) => return Err(SettingsError::UnknownSetting(setting_id.into())),
+        }
+        self.save(&next).map_err(|error| SettingsError::Storage(error.to_string()))?;
+        self.settings = next;
+        Ok(())
+    }
+}
+
+/// Resolve the device-local settings path. `HOCKET_SETTINGS` is the only
+/// override; otherwise it follows the platform data root convention used by
+/// Hocket's local identity.
+pub fn settings_path() -> PathBuf {
+    if let Some(path) = std::env::var_os(SETTINGS_PATH_ENV) {
+        return PathBuf::from(path);
+    }
+    if let Some(root) = std::env::var_os("LOCALAPPDATA") {
+        return PathBuf::from(root).join("Hocket/update-settings.json");
+    }
+    if let Some(root) = std::env::var_os("XDG_CONFIG_HOME") {
+        return PathBuf::from(root).join("hocket/update-settings.json");
+    }
+    if let Some(home) = std::env::var_os("HOME") {
+        return PathBuf::from(home).join(".config/hocket/update-settings.json");
+    }
+    PathBuf::from("hocket-update-settings.json")
 }
 
 /// Why the app cannot update itself in this installation.
@@ -475,5 +656,36 @@ mod tests {
             UpdatePolicy::from_str_or_default("nonsense"),
             UpdatePolicy::NotifyOnly
         );
+    }
+
+    #[test]
+    fn device_provider_describes_and_persists_update_settings() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("update-settings.json");
+        let mut provider = UpdateSettingsProvider::load(&path).unwrap();
+        let reference = SettingsRef(UPDATE_REFERENCE.into());
+        let specs = provider.describe(&reference).unwrap();
+        assert_eq!(specs.len(), 3);
+        assert_eq!(specs[0].scope, SettingScope::Device);
+        assert_eq!(specs[0].mutability, SettingMutability::StartupOnly);
+        provider
+            .apply(
+                &reference,
+                "update.policy",
+                SettingValue::Text("automatic".into()),
+            )
+            .unwrap();
+        assert_eq!(
+            UpdateSettingsProvider::load(&path).unwrap().settings().policy,
+            UpdatePolicy::Automatic
+        );
+        assert!(matches!(
+            provider.apply(
+                &reference,
+                "update.check_interval_secs",
+                SettingValue::Integer(1)
+            ),
+            Err(SettingsError::InvalidValue { .. })
+        ));
     }
 }
